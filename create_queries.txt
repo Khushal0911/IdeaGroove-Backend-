@@ -1,0 +1,245 @@
+-- ============================================
+-- Student Collaboration System Database Schema
+-- ============================================
+
+-- Create database (optional)
+-- CREATE DATABASE IF NOT EXISTS student_collaboration_db;
+-- USE student_collaboration_db;
+
+-- ============================================
+-- 1. LOOKUP TABLES (No dependencies)
+-- ============================================
+
+-- College Table
+CREATE TABLE IF NOT EXISTS college_tbl (
+    College_ID INT PRIMARY KEY AUTO_INCREMENT,
+    College_Name VARCHAR(100) NOT NULL UNIQUE,
+    City VARCHAR(50) NOT NULL,
+    State VARCHAR(50) NOT NULL
+);
+
+-- Degree Table
+CREATE TABLE IF NOT EXISTS degree_tbl (
+    Degree_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Degree_Name VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Subject Table
+CREATE TABLE IF NOT EXISTS subject_tbl (
+    Subject_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Subject_Name VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- Hobbies Table
+CREATE TABLE IF NOT EXISTS hobbies_tbl (
+    Hobby_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Hobby_Name VARCHAR(100) NOT NULL UNIQUE
+);
+
+-- ============================================
+-- 2. MAPPING TABLES (Lookup dependencies)
+-- ============================================
+
+-- Degree-Subject Mapping Table
+CREATE TABLE IF NOT EXISTS degree_subject_mapping_tbl (
+    DS_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Degree_ID INT NOT NULL,
+    Subject_ID INT NOT NULL,
+    FOREIGN KEY (Degree_ID) REFERENCES degree_tbl(Degree_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Subject_ID) REFERENCES subject_tbl(Subject_ID) ON DELETE CASCADE
+);
+
+-- ============================================
+-- 3. STUDENT TABLE (Main user table)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS student_tbl (
+    S_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Username VARCHAR(25) NOT NULL UNIQUE,
+    Name VARCHAR(25) NOT NULL,
+    Roll_No VARCHAR(15) NOT NULL UNIQUE,
+    College_ID INT,
+    Degree_ID INT,
+    Year INT NOT NULL,
+    Email VARCHAR(50) NOT NULL UNIQUE,
+    Profile_Pic VARCHAR(255),
+    Password VARCHAR(255) NOT NULL,
+    is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (College_ID) REFERENCES college_tbl(College_ID),
+    FOREIGN KEY (Degree_ID) REFERENCES degree_tbl(Degree_ID)
+);
+
+-- Student-Hobby Mapping Table
+CREATE TABLE IF NOT EXISTS student_hobby_mapping_tbl (
+    SH_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Student_ID INT NOT NULL,
+    Hobby_ID INT NOT NULL,
+    FOREIGN KEY (Student_ID) REFERENCES student_tbl(S_ID) ON DELETE CASCADE,
+    FOREIGN KEY (Hobby_ID) REFERENCES hobbies_tbl(Hobby_ID) ON DELETE CASCADE
+);
+
+-- ============================================
+-- 4. Q&A TABLES
+-- ============================================
+
+-- Question Table
+CREATE TABLE IF NOT EXISTS question_tbl (
+    Q_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Question VARCHAR(255) NOT NULL,
+    Added_By INT NOT NULL,
+    Added_On DATETIME NOT NULL,
+    Degree_ID INT,
+    Subject_ID INT,
+    Is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    Deleted_on DATETIME NULL,
+    FOREIGN KEY (Added_By) REFERENCES student_tbl(S_ID),
+    FOREIGN KEY (Degree_ID) REFERENCES degree_tbl(Degree_ID),
+    FOREIGN KEY (Subject_ID) REFERENCES subject_tbl(Subject_ID)
+);
+
+-- Answer Table
+CREATE TABLE IF NOT EXISTS answer_tbl (
+    A_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Answer VARCHAR(255) NOT NULL,
+    Q_ID INT NOT NULL,
+    Answered_By INT NOT NULL,
+    Answered_On DATETIME NOT NULL,
+    Is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (Q_ID) REFERENCES question_tbl(Q_ID),
+    FOREIGN KEY (Answered_By) REFERENCES student_tbl(S_ID)
+);
+
+-- ============================================
+-- 5. NOTES TABLE
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS notes_tbl (
+    N_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Note_File VARCHAR(255) NOT NULL,
+    Added_By INT NOT NULL,
+    Added_On DATETIME NOT NULL,
+    Degree_ID INT,
+    Subject_ID INT,
+    Description VARCHAR(255),
+    Is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    Deleted_on DATETIME NULL,
+    FOREIGN KEY (Added_By) REFERENCES student_tbl(S_ID),
+    FOREIGN KEY (Degree_ID) REFERENCES degree_tbl(Degree_ID),
+    FOREIGN KEY (Subject_ID) REFERENCES subject_tbl(Subject_ID)
+);
+
+-- ============================================
+-- 6. EVENT TABLE
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS event_tbl (
+    E_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Poster_File VARCHAR(255) NOT NULL,
+    Description VARCHAR(255),
+    Event_Date DATE NOT NULL,
+    Added_By INT NOT NULL,
+    Added_On DATETIME NOT NULL,
+    Is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (Added_By) REFERENCES student_tbl(S_ID)
+);
+
+-- ============================================
+-- 7. CHAT SYSTEM TABLES
+-- ============================================
+
+-- Chat Rooms Table
+CREATE TABLE IF NOT EXISTS chat_rooms_tbl (
+    Room_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Room_Type ENUM('direct','group') NOT NULL,
+    Room_Name VARCHAR(150) NULL,
+    Based_on INT NULL,
+    Created_By INT,
+    Created_On DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    Is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (Created_By) REFERENCES student_tbl(S_ID)
+);
+
+-- Chat Room Members Table
+CREATE TABLE IF NOT EXISTS chat_room_members_tbl (
+    Member_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Room_ID INT NOT NULL,
+    Student_ID INT NOT NULL,
+    Role ENUM('admin','member') DEFAULT 'member',
+    Joined_On DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    Left_On DATETIME NULL,
+    Is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (Room_ID) REFERENCES chat_rooms_tbl(Room_ID),
+    FOREIGN KEY (Student_ID) REFERENCES student_tbl(S_ID)
+);
+
+-- Chats Table
+CREATE TABLE IF NOT EXISTS chats_tbl (
+    Message_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Room_ID INT NOT NULL,
+    Sender_ID INT,
+    Message_Type ENUM('text','image','file','system') DEFAULT 'text',
+    Message_Text TEXT NULL,
+    File_Path VARCHAR(255) NULL,
+    Encryption_IV VARCHAR(50) NULL,
+    Sent_On DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    Is_Edited BOOLEAN NOT NULL DEFAULT FALSE,
+    Is_Deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    FOREIGN KEY (Room_ID) REFERENCES chat_rooms_tbl(Room_ID),
+    FOREIGN KEY (Sender_ID) REFERENCES student_tbl(S_ID)
+);
+
+-- Chats Seen Table
+CREATE TABLE IF NOT EXISTS chats_seen_tbl (
+    Seen_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Message_ID INT NOT NULL,
+    Member_ID INT NOT NULL,
+    Seen_On DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (Message_ID) REFERENCES chats_tbl(Message_ID),
+    FOREIGN KEY (Member_ID) REFERENCES chat_room_members_tbl(Member_ID)
+);
+
+-- ============================================
+-- 8. COMPLAINT TABLE
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS complaint_tbl (
+    Complaint_ID INT PRIMARY KEY AUTO_INCREMENT,
+    Student_ID INT,
+    Complaint_Text TEXT NOT NULL,
+    Date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    Status VARCHAR(20) DEFAULT 'Pending',
+    Is_Active BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (Student_ID) REFERENCES student_tbl(S_ID)
+);
+
+-- ============================================
+-- INDEXES for Performance Optimization (Optional)
+-- ============================================
+
+-- Student table indexes
+CREATE INDEX idx_student_username ON student_tbl(Username);
+CREATE INDEX idx_student_email ON student_tbl(Email);
+CREATE INDEX idx_student_college ON student_tbl(College_ID);
+
+-- Question table indexes
+CREATE INDEX idx_question_added_by ON question_tbl(Added_By);
+CREATE INDEX idx_question_subject ON question_tbl(Subject_ID);
+
+-- Answer table indexes
+CREATE INDEX idx_answer_question ON answer_tbl(Q_ID);
+
+-- Chat indexes
+CREATE INDEX idx_chat_room ON chats_tbl(Room_ID);
+CREATE INDEX idx_chat_sender ON chats_tbl(Sender_ID);
+CREATE INDEX idx_chat_sent_on ON chats_tbl(Sent_On);
+
+-- Notes indexes
+CREATE INDEX idx_notes_added_by ON notes_tbl(Added_By);
+CREATE INDEX idx_notes_subject ON notes_tbl(Subject_ID);
+
+-- Event indexes
+CREATE INDEX idx_event_date ON event_tbl(Event_Date);
+
+-- ============================================
+-- END OF SCHEMA
+-- ============================================
