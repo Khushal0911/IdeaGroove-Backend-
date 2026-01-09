@@ -1,16 +1,19 @@
+import "dotenv/config.js"
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import passport from "passport";
-dotenv.config();
+import authRouter from "./Routes/AuthRoutes";
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+app.use(cors);
+
+app.use("/api/auth", authRouter);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
 });
 
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
