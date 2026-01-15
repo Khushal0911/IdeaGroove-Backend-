@@ -85,34 +85,109 @@ export const userRegister = async (req, res) => {
 };
 
 // --- LOGIN CONTROLLER ---
-export const userLogin = async (req, res) => {
+// export const userLogin = async (req, res, next) => {
+//   try {
+//     const { username, password } = req.body;
+//     if (!username || !password)
+//       return res.status(400).json({ message: "Missing credentials." });
+//     console.log("Login Attempt:", username);
+
+//     const [rows] = await db.query(
+//       "SELECT * FROM student_tbl WHERE Username = ?",
+//       [username]
+//     );
+//     if (rows.length === 0)
+//       return res.status(400).json({ message: "Invalid credentials." });
+
+//     const user = rows[0];
+//     const match = await bcrypt.compare(password, user.Password);
+//     if (!match)
+//       return res.status(400).json({ message: "Invalid credentials." });
+
+//     req.login(user, (err) => {
+//       if (err) {
+//         console.error("Passport Login Error:", err);
+//         return next(err);
+//       }
+
+//       // Session is now saved! Cookie will be sent to browser.
+//       return res.status(200).json({
+//         message: "Login successful",
+//         user: {
+//           id: user.S_ID,
+//           Name: user.Name,
+//           Username: user.Username,
+//         },
+//       });
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: "Server Error." });
+//   }
+// };
+
+export const userLogin = async (req, res, next) => {
   try {
     const { username, password } = req.body;
+    console.log("Received Login Payload:", req.body);
+
     if (!username || !password)
       return res.status(400).json({ message: "Missing credentials." });
+
+    console.log("🔹 Login Attempt for:", username);
 
     const [rows] = await db.query(
       "SELECT * FROM student_tbl WHERE Username = ?",
       [username]
     );
-    if (rows.length === 0)
+
+    if (rows.length === 0) {
+      console.log("❌ User not found");
       return res.status(400).json({ message: "Invalid credentials." });
+    }
 
     const user = rows[0];
-    const match = await bcrypt.compare(password, user.Password);
-    if (!match)
-      return res.status(400).json({ message: "Invalid credentials." });
+    console.log(user);
 
-    res.status(200).json({
-      message: "Login successful",
-      user: {
-        id: user.S_ID || user.student_id,
-        Username: user.Username,
-        Email: user.Email,
-        Name: user.Name,
-      },
+    // ✅ This line will crash if bcrypt is not imported
+    const match = await bcrypt.compare(password, user.Password);
+    console.log("Password Match Result:", match);
+    if (!match) {
+      console.log("❌ Password mismatch");
+      return res.status(400).json({ message: "Invalid credentials." });
+    }
+    console.log("✅ User authenticated:", username);
+    req.login(user, (err) => {
+      if (err) {
+        console.error("❌ Passport Login Error:", err);
+        return next(err);
+      }
+
+      console.log("✅ Session created for User ID:", user.S_ID);
+
+      return res.status(200).json({
+        message: "Login successful",
+        user: {
+          id: user.S_ID,
+          Name: user.Name,
+          Username: user.Username,
+        },
+      });
     });
   } catch (error) {
+    // ✅ CRITICAL FIX: Print the actual error to your terminal
+    console.error("🔥 SERVER CRASH IN LOGIN:", error);
     res.status(500).json({ message: "Server Error." });
   }
+};
+
+export const userLogout = (req, res) => {
+  req.logout((err) => {
+    if (err) return res.status(500).json({ error: "Logout failed" });
+
+    req.session = null; // Clear cookie-session
+    res.clearCookie("session"); // Clear browser cookie
+    res.clearCookie("session.sig"); // Clear signature
+
+    return res.status(200).json({ message: "Logged out successfully" });
+  });
 };

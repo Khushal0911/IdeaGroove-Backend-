@@ -7,7 +7,7 @@ import {
 } from "../controllers/FetchController.js";
 const fetchRouter = express.Router();
 
-fetchRouter.get("/signup", getData);
+fetchRouter.get("/search", getData);
 fetchRouter.get("/search/colleges", searchColleges);
 fetchRouter.get("/search/degrees", searchDegrees);
 fetchRouter.get("/search/hobbies", searchHobbies);
