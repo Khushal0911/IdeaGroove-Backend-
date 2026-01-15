@@ -4,12 +4,14 @@ import cors from "cors";
 import passport from "passport";
 import authRouter from "./routes/AuthRoutes.js";
 import { testConnection } from "./config/db.js";
+import fetchRouter from "./routes/FetchRoutes.js";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 app.use("/api/auth", authRouter);
+app.use("/api", fetchRouter);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
