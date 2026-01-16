@@ -14,10 +14,10 @@ export const userRegister = async (req, res) => {
     Year,
     Email,
     Password,
-    hobby_ids,
+    Hobbies,
   } = req.body;
 
-  const Profile_Pic = req.file ? req.file.path : null
+  const Profile_Pic = req.file ? req.file.path : null;
 
   // Sanitization
   Username = Username?.toString().trim();
@@ -31,6 +31,22 @@ export const userRegister = async (req, res) => {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
+  let parsedHobbies = [];
+  if (Hobbies) {
+    if (Array.isArray(Hobbies)) {
+      parsedHobbies = Hobbies;
+    } else if (typeof Hobbies === "string") {
+      // Split by comma if it's a string "1,2,3"
+      parsedHobbies = Hobbies.split(",").map((h) => h.trim());
+    }
+  }
+  // Filter out empty values and convert to Integers
+  parsedHobbies = parsedHobbies
+    .map((id) => parseInt(id))
+    .filter((id) => !isNaN(id));
+
+  console.log("✅ Parsed Hobbies:", parsedHobbies);
+
   let connection;
   try {
     const hashedPassword = await bcrypt.hash(Password, 10);
@@ -42,8 +58,8 @@ export const userRegister = async (req, res) => {
     // 1. Insert Student
     const studentSql = `
       INSERT INTO student_tbl 
-      (Username, Name, Roll_No, College_ID, Degree_ID, Year, Email, Password,Profile_Pic, is_Active) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (Username, Name, Roll_No, College_ID, Degree_ID, Year, Email, Password, Profile_Pic, is_Active) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const [result] = await connection.query(studentSql, [
@@ -60,10 +76,16 @@ export const userRegister = async (req, res) => {
     ]);
     const newStudentId = result.insertId;
 
-    // 2. Insert Hobbies (if any)
-    if (hobby_ids && Array.isArray(hobby_ids) && hobby_ids.length > 0) {
+    // --- 5. Insert Hobbies (if any) ---
+    if (parsedHobbies.length > 0) {
       const hobbySql = `INSERT INTO student_hobby_mapping_tbl (Student_ID, Hobby_ID) VALUES ?`;
-      const hobbyValues = hobby_ids.map((hobbyId) => [newStudentId, hobbyId]);
+
+      // Prepare bulk insert array: [[student_id, hobby_id_1], [student_id, hobby_id_2], ...]
+      const hobbyValues = parsedHobbies.map((hobbyId) => [
+        newStudentId,
+        hobbyId,
+      ]);
+
       await connection.query(hobbySql, [hobbyValues]);
     }
 
