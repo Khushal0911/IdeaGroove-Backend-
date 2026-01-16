@@ -8,6 +8,7 @@ import { testConnection } from "./config/db.js";
 import "./config/passport.js";
 import axios from "axios";
 import fetchRouter from "./routes/FetchRoutes.js";
+import uploadRoutes from "./routes/upload.js";
 
 const app = express();
 axios.defaults.withCredentials = true;
@@ -51,6 +52,7 @@ app.use(passport.session());
 
 app.use("/api/auth", authRouter);
 app.use("/api", fetchRouter);
+app.use("/api/upload", uploadRoutes)
 
 app.get("/", (req, res) => {
   res.send("Server is Live");

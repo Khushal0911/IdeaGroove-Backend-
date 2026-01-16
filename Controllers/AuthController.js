@@ -17,6 +17,8 @@ export const userRegister = async (req, res) => {
     hobby_ids,
   } = req.body;
 
+  const Profile_Pic = req.file ? req.file.path : null
+
   // Sanitization
   Username = Username?.toString().trim();
   Name = Name?.toString().trim();
@@ -40,7 +42,7 @@ export const userRegister = async (req, res) => {
     // 1. Insert Student
     const studentSql = `
       INSERT INTO student_tbl 
-      (Username, Name, Roll_No, College_ID, Degree_ID, Year, Email, Password, is_Active) 
+      (Username, Name, Roll_No, College_ID, Degree_ID, Year, Email, Password,Profile_Pic, is_Active) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
@@ -53,6 +55,7 @@ export const userRegister = async (req, res) => {
       Year || null,
       Email,
       hashedPassword,
+      Profile_Pic,
       1,
     ]);
     const newStudentId = result.insertId;
