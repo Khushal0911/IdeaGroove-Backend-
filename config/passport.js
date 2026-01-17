@@ -3,17 +3,14 @@ import db from "./db.js"; // Ensure this path is correct relative to passport.js
 
 passport.serializeUser((user, done) => {
   console.log("--- SERIALIZING USER ---");
-  // console.log(user); // Uncomment to see full object if it fails
-
-  // Robust ID check
   const userId = user.S_ID || user.Student_ID || user.id || user.student_id;
 
   if (!userId) {
-    console.error("❌ SERIALIZE ERROR: User object has no ID!", user);
+    console.error("SERIALIZE ERROR: User object has no ID!", user);
     return done(new Error("User object missing ID field"), null);
   }
 
-  console.log("✅ Serializing ID:", userId);
+  //console.log("Serializing ID:", userId);
   done(null, userId);
 });
 
@@ -32,7 +29,7 @@ passport.deserializeUser(async (id, done) => {
       done(null, null);
     }
   } catch (err) {
-    console.error("❌ DESERIALIZE ERROR:", err);
+    console.error("DESERIALIZE ERROR:", err);
     done(err, null);
   }
 });
