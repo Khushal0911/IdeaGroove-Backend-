@@ -101,7 +101,7 @@ export const userRegister = async (req, res) => {
       LEFT JOIN degree_tbl d ON s.Degree_ID = d.Degree_ID
       WHERE s.S_ID = ?
     `,
-      [newStudentId]
+      [newStudentId],
     );
 
     const newUser = userRows[0];
@@ -114,7 +114,7 @@ export const userRegister = async (req, res) => {
       JOIN student_hobby_mapping_tbl m ON h.Hobby_ID = m.Hobby_ID
       WHERE m.Student_ID = ?
     `,
-      [newStudentId]
+      [newStudentId],
     );
 
     const hobbyNames = hobbyRows.map((h) => h.Hobby_Name);
@@ -165,7 +165,7 @@ export const userLogin = async (req, res, next) => {
 
     const [rows] = await db.query(
       "SELECT * FROM student_tbl WHERE Username = ?",
-      [username]
+      [username],
     );
 
     if (rows.length === 0) {
@@ -186,7 +186,7 @@ export const userLogin = async (req, res, next) => {
        FROM hobbies_tbl h
        JOIN student_hobby_mapping_tbl m ON h.Hobby_ID = m.Hobby_ID
        WHERE m.Student_ID = ?`,
-      [user.S_ID]
+      [user.S_ID],
     );
 
     // Convert [{Hobby_Name: 'Art'}, {Hobby_Name: 'Code'}] -> ['Art', 'Code']
@@ -194,14 +194,14 @@ export const userLogin = async (req, res, next) => {
 
     const [collegeRows] = await db.query(
       "SELECT College_Name FROM college_tbl WHERE College_ID = ?",
-      [user.College_ID]
+      [user.College_ID],
     );
     const collegeName = collegeRows[0]?.College_Name || "N/A";
 
     // 5. Fetch Degree Name ✅ FIXED DESTRUCTURING
     const [degreeRows] = await db.query(
       "SELECT Degree_Name FROM degree_tbl WHERE Degree_ID = ?",
-      [user.Degree_ID]
+      [user.Degree_ID],
     );
     const degreeName = degreeRows[0]?.Degree_Name || "N/A";
 
@@ -242,10 +242,52 @@ export const userLogout = (req, res) => {
   req.logout((err) => {
     if (err) return res.status(500).json({ error: "Logout failed" });
 
-    req.session = null; // Clear cookie-session
+    req.session = null;
     res.clearCookie("session"); // Clear browser cookie
     res.clearCookie("session.sig"); // Clear signature
 
     return res.status(200).json({ message: "Logged out successfully" });
   });
+};
+
+export const adminLogin = async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const ADMIN_USERNAME = "admin";
+    const ADMIN_PASSWORD = "admin@ideagroove";
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Username and password are required.",
+      });
+    }
+
+    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      return res
+        .status(200)
+        .cookie("admin_token", "authorized_access_granted", {
+          httpOnly: true,
+          sameSite: "strict",
+          maxAge: 24 * 60 * 60 * 1000, // 1 day
+        })
+        .json({
+          success: true,
+          message: "Login Successful!",
+          role: "admin",
+        });
+    } else {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials. Access denied.",
+      });
+    }
+  } catch (error) {
+    console.error("Server Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error.",
+    });
+  }
 };

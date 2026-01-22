@@ -10,5 +10,6 @@ import { upload } from "../config/cloud.js";
 authRouter.post("/login", userLogin);
 authRouter.post("/signup", upload.single("image"), userRegister);
 authRouter.post("/logout", userLogout);
+authRouter.post('/admin-login', adminLogin)
 
 export default authRouter;
