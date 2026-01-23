@@ -1,5 +1,122 @@
 import bcrypt from "bcryptjs";
 import db from "../config/db.js";
+import jwt from "jsonwebtoken"; // Import JWT
+import nodemailer from "nodemailer";
+
+// --- FORGOT PASSWORD (STATELESS) ---
+export const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    // 1. Find the user
+    const [user] = await db.query("SELECT * FROM student_tbl WHERE Email = ?", [
+      email,
+    ]);
+
+    if (user.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const targetUser = user[0];
+
+    // 2. Create a One-Time Secret
+    // We combine the Global Secret + The User's Current Password
+    // If the user changes their password later, this secret changes, invalidating old tokens!
+    const secret = process.env.JWT_SECRET + targetUser.Password;
+
+    // 3. Generate the Token (Payload: User ID and Email)
+    const token = jwt.sign(
+      { id: targetUser.S_ID, email: targetUser.Email },
+      secret,
+      { expiresIn: "15m" }, // Token valid for 15 minutes
+    );
+
+    // Send Email
+    // Note: We include the ID in the URL to help us find the user quickly during reset
+    // /resetPassword/USER_ID/TOKEN
+    const resetUrl = `http://localhost:5173/resetPassword/${targetUser.S_ID}/${token}`;
+
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    const mailOptions = {
+      to: email,
+      from: process.env.EMAIL_USER,
+      subject: "Password Reset Request",
+      text: `Hello ${targetUser.Username} Click this link to reset your password: ${resetUrl}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #1A3C20;">Password Reset Request</h2>
+          <p>Hello <strong>${targetUser.Username}</strong>,</p>
+          <p>The Link will <strong style="color: #1A3C20;">expire</strong> in <strong style="color: #1A3C20;">15 minutes</strong>.</p>
+          <p>You requested a password reset. Click the button below to set a new password:</p>
+          
+          <a href="${resetUrl}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; margin: 10px 0;">
+            Reset Password
+          </a>
+          <p style="margin-top: 20px;">If the button above doesn't work, verify the link below:</p>
+          <p><a href="${resetUrl}" style="color: #16a34a;">${resetUrl}</a></p>
+        </div>
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    res.status(200).json({ message: "Reset link sent to email." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
+
+// --- RESET PASSWORD (STATELESS) ---
+export const resetPassword = async (req, res) => {
+  const { id, token } = req.params; // Get ID and Token from URL
+  const { password } = req.body;
+
+  try {
+    // 1. Find User by ID first
+    const [user] = await db.query("SELECT * FROM student_tbl WHERE S_ID = ?", [
+      id,
+    ]);
+
+    if (user.length === 0) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const targetUser = user[0];
+
+    // 2. Recreate the Secret used to sign the token
+    // (Global Secret + User's CURRENT Password Hash from DB)
+    const secret = process.env.JWT_SECRET + targetUser.Password;
+
+    // 3. Verify the Token
+    try {
+      jwt.verify(token, secret);
+    } catch (err) {
+      return res.status(400).json({ message: "Invalid or expired token." });
+    }
+
+    // 4. Hash New Password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 5. Update Password in DB
+    await db.query("UPDATE student_tbl SET Password = ? WHERE S_ID = ?", [
+      hashedPassword,
+      id,
+    ]);
+
+    res.status(200).json({ message: "Password successfully updated." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server Error" });
+  }
+};
 
 // --- REGISTER CONTROLLER ---
 export const userRegister = async (req, res) => {
