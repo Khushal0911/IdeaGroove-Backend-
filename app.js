@@ -9,6 +9,7 @@ import "./config/passport.js";
 import axios from "axios";
 import fetchRouter from "./routes/FetchRoutes.js";
 import uploadRoutes from "./routes/upload.js";
+import adminRouter from "./routes/AdminRoutes.js";
 
 const app = express();
 axios.defaults.withCredentials = true;
@@ -18,7 +19,7 @@ app.use(
     origin: "http://localhost:5173",
     methods: "GET,POST,PUT,DELETE",
     credentials: true, // Required for cookies to be sent/received
-  })
+  }),
 );
 
 app.use(express.json());
@@ -29,7 +30,7 @@ app.use(
     // Use an env variable for security, fallback to a string for dev
     keys: [process.env.COOKIE_KEY || "idea-groove-secret-key"],
     maxAge: 24 * 60 * 60 * 1000, // Session valid for 24 hours
-  })
+  }),
 );
 
 app.use((req, res, next) => {
@@ -51,8 +52,9 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use("/api/auth", authRouter);
+app.use("/api/admin", adminRouter);
 app.use("/api", fetchRouter);
-app.use("/api/upload", uploadRoutes)
+app.use("/api/upload", uploadRoutes);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
@@ -68,7 +70,7 @@ const startServer = async () => {
     });
   } catch (err) {
     console.error(
-      "Failed to start server due to DB connection error. Exiting."
+      "Failed to start server due to DB connection error. Exiting.",
     );
     process.exit(1);
   }
