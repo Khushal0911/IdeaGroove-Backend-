@@ -120,8 +120,6 @@ export const resetPassword = async (req, res) => {
 
 // --- REGISTER CONTROLLER ---
 export const userRegister = async (req, res) => {
-  console.log("Register Payload:", req.body);
-
   let {
     Username,
     Name,
@@ -143,10 +141,6 @@ export const userRegister = async (req, res) => {
   Email = Email?.toString().trim();
   Password = Password?.toString();
 
-  const collegeIdInt = College_ID ? parseInt(College_ID) : null;
-  const degreeIdInt = Degree_ID ? parseInt(Degree_ID) : null;
-  const yearInt = Year ? parseInt(Year) : null;
-
   // Validation
   if (!Username || !Name || !Roll_No || !Email || !Password) {
     return res.status(400).json({ error: "Missing required fields." });
@@ -165,8 +159,6 @@ export const userRegister = async (req, res) => {
   parsedHobbies = parsedHobbies
     .map((id) => parseInt(id))
     .filter((id) => !isNaN(id));
-
-  console.log("✅ Parsed Hobbies:", parsedHobbies);
 
   let connection;
   try {
@@ -273,12 +265,9 @@ export const userRegister = async (req, res) => {
 export const userLogin = async (req, res, next) => {
   try {
     const { username, password } = req.body;
-    console.log("Received Login Payload:", req.body);
 
     if (!username || !password)
       return res.status(400).json({ message: "Missing credentials." });
-
-    console.log("Login Attempt for:", username);
 
     const [rows] = await db.query(
       "SELECT * FROM student_tbl WHERE Username = ?",
@@ -315,7 +304,6 @@ export const userLogin = async (req, res, next) => {
     );
     const collegeName = collegeRows[0]?.College_Name || "N/A";
 
-    // 5. Fetch Degree Name ✅ FIXED DESTRUCTURING
     const [degreeRows] = await db.query(
       "SELECT Degree_Name FROM degree_tbl WHERE Degree_ID = ?",
       [user.Degree_ID],
@@ -341,8 +329,6 @@ export const userLogin = async (req, res, next) => {
         return next(err);
       }
 
-      console.log("Session created for User ID:", user.S_ID);
-
       return res.status(200).json({
         message: "Login successful",
         user: userData,
@@ -350,7 +336,7 @@ export const userLogin = async (req, res, next) => {
     });
   } catch (error) {
     // CRITICAL FIX: Print the actual error to your terminal
-    console.error("🔥 SERVER CRASH IN LOGIN:", error);
+    console.error("SERVER CRASH IN LOGIN:", error);
     res.status(500).json({ message: "Server Error." });
   }
 };
