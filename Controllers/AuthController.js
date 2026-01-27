@@ -365,3 +365,58 @@ export const userLogout = (req, res) => {
     return res.status(200).json({ message: "Logged out successfully" });
   });
 };
+
+export const sendOtp = async (req, res) => {
+  const { email } = req.body;
+
+  const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+  const otpToken = jwt.sign(
+    { email, otpCode },
+    process.env.JWT_SECRET,
+    { expiresIn: "5m" }, // 5-minute expiry built-in
+  );
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Verification Code",
+      html: `Your OTP is: <b>${otpCode}</b>. It expires in 5 minutes.`,
+    });
+
+    res.status(200).json({
+      message: "OTP sent!",
+      token: otpToken, // The frontend will store this in a state
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to send email" });
+  }
+};
+
+export const verifyOtp = async (req, res) => {
+  const { otp, token } = req.body;
+
+  try {
+    // 1. Decode and verify the token
+    // If more than 5 minutes have passed, jwt.verify will throw an error
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // 2. Compare the user's input with the code hidden in the token
+    if (decoded.otpCode !== otp) {
+      return res.status(400).json({ error: "Invalid OTP code." });
+    }
+
+    res.status(200).json({ message: "OTP Verified!" });
+  } catch (err) {
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ error: "OTP expired. Request a new one." });
+    }
+    res.status(400).json({ error: "Invalid verification session." });
+  }
+};
