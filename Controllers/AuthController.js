@@ -146,6 +146,19 @@ export const userRegister = async (req, res) => {
     return res.status(400).json({ error: "Missing required fields." });
   }
 
+  const rollNoRegex = /^[a-zA-Z0-9\s-]+$/;
+  if (!rollNoRegex.test(Roll_No)) {
+    return res.status(400).json({
+      error:
+        "Invalid Roll No format. Only alphanumeric characters, hyphens, and spaces are allowed.",
+    });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(Email)) {
+    return res.status(400).json({ error: "Invalid email format." });
+  }
+
   let parsedHobbies = [];
   if (Hobbies) {
     if (Array.isArray(Hobbies)) {
