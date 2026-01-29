@@ -368,6 +368,7 @@ export const userLogout = (req, res) => {
 
 export const sendOtp = async (req, res) => {
   const { email } = req.body;
+  console.log(email);
 
   const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -380,11 +381,11 @@ export const sendOtp = async (req, res) => {
   try {
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+      auth: { user: process.env.EMAIL_USERNAME, pass: process.env.EMAIL_PASS },
     });
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: process.env.EMAIL_USERNAME,
       to: email,
       subject: "Verification Code",
       html: `Your OTP is: <b>${otpCode}</b>. It expires in 5 minutes.`,
