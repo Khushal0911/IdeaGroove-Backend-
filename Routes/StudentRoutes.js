@@ -1,7 +1,11 @@
-// import express from "express";
-// import { getPublicProfile } from "../controllers/StudentController";
-// const studentRouter = express.Router();
+import express from "express";
+import {
+  getAllStudents,
+  getPublicProfile,
+} from "../controllers/StudentController.js";
+const studentRouter = express.Router();
 
-// // studentRouter.post("/all", getPublicProfile);
+studentRouter.get("/profile/:id", getPublicProfile);
+studentRouter.get("/all", getAllStudents);
 
-// export default studentRouter;
+export default studentRouter;
