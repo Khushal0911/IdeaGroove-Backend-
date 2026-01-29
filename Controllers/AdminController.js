@@ -44,3 +44,15 @@ export const adminLogin = async (req, res) => {
     });
   }
 };
+
+export const adminLogout = (req, res) => {
+  req.logout((err) => {
+    if (err) return res.status(500).json({ error: "Logout failed" });
+
+    req.session = null;
+    res.clearCookie("session"); // Clear browser cookie
+    res.clearCookie("session.sig"); // Clear signature
+
+    return res.status(200).json({ message: "Logged out successfully" });
+  });
+};

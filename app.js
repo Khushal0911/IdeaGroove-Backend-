@@ -10,6 +10,7 @@ import axios from "axios";
 import fetchRouter from "./routes/FetchRoutes.js";
 import uploadRoutes from "./routes/upload.js";
 import adminRouter from "./routes/AdminRoutes.js";
+//import studentRouter from "./routes/StudentRoutes.js";
 
 const app = express();
 axios.defaults.withCredentials = true;
@@ -55,6 +56,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api", fetchRouter);
 app.use("/api/upload", uploadRoutes);
+// app.use("/api/students", studentRouter);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
