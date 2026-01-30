@@ -31,15 +31,12 @@ export const forgotPassword = async (req, res) => {
       { expiresIn: "15m" }, // Token valid for 15 minutes
     );
 
-    // Send Email
-    // Note: We include the ID in the URL to help us find the user quickly during reset
-    // /resetPassword/USER_ID/TOKEN
     const resetUrl = `http://localhost:5173/resetPassword/${targetUser.S_ID}/${token}`;
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: process.env.EMAIL_USER,
+        user: process.env.EMAIL_USERNAME,
         pass: process.env.EMAIL_PASS,
       },
     });
