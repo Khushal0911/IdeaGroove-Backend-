@@ -58,13 +58,13 @@ app.use("/api/admin", adminRouter);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/students", studentRouter);
 app.use("/api", fetchRouter);
-app.use("api/events",eventRouter);
+app.use("/api/events", eventRouter);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   try {
