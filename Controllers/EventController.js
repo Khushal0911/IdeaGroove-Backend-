@@ -1,17 +1,9 @@
 import db from "../config/db.js"
 
-export const creatEvent = async (req,res)=>{
+export const addEvent = async (req,res)=>{
     let {Description, Event_Date, Added_By} = req.body;
 
     const Poster_File_Url = req.file ? req.file.path : null;
-
-    // if(!Event_Date || !Added_by){
-    //     return res.status(400).json({error: "Event date and creator ID are required"})
-    // }
-
-    // if (!Poster_File_Url) {
-    //     return res.status(400).json({ error: "Event poster is required." });
-    // }
 
     let connection;
     try{
