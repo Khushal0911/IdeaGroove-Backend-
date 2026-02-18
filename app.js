@@ -14,6 +14,8 @@ import studentRouter from "./routes/StudentRoutes.js";
 import eventRouter from "./routes/EventRoutes.js";
 import notesRouter from "./routes/NotesRoutes.js";
 import qnaRouter from "./routes/QnARoutes.js";
+import degreeSubjectRouter from "./routes/DegreeSubjectRoutes.js";
+import groupRouter from "./routes/GroupRoutes.js";
 
 const app = express();
 axios.defaults.withCredentials = true;
@@ -63,6 +65,8 @@ app.use("/api", fetchRouter);
 app.use("/api/events", eventRouter);
 app.use("/api/notes",notesRouter);
 app.use("/api/qna",qnaRouter);
+app.use("/api/degreeSubject",degreeSubjectRouter);
+app.use("/api/groups",groupRouter);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
