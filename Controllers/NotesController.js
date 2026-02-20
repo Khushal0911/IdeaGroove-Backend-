@@ -1,25 +1,72 @@
 import db from "../config/db.js"
 
-export const getNotes = async (req,res)=>{
-    try{
-        const allNotesQuery =  `SELECT n.*,s.username as Author from notes_tbl n 
-        LEFT JOIN student_tbl s on n.Added_By = s.S_ID
-        WHERE n.Is_Active = 1`
+export const getNotes = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
 
-        const [notes] = await db.query(allNotesQuery);
+        const [countResult] = await db.query(`SELECT COUNT(*) as total FROM notes_tbl WHERE Is_Active = 1`);
+        const total = countResult[0].total;
 
-        res.status(201).json({
-            status:true,
-            notes_count:notes.length,
-            notes:notes,
+        const allNotesQuery = `
+            SELECT n.*, s.username as Author 
+            FROM notes_tbl n 
+            LEFT JOIN student_tbl s ON n.Added_By = s.S_ID
+            WHERE n.Is_Active = 1
+            ORDER BY n.Added_on DESC
+            LIMIT ? OFFSET ?`;
+
+        const [notes] = await db.query(allNotesQuery, [limit, offset]);
+
+        res.status(200).json({
+            status: true,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit),
+            notes: notes,
         });
-    }catch(err){
-        console.error("Fetch Notes Error: ",err);
-        res.status(500).json({
-            error:"Failed to fetch notes"
-        })
+    } catch (err) {
+        console.error("Fetch Notes Error: ", err);
+        res.status(500).json({ status: false, error: "Failed to fetch notes" });
     }
-}
+};
+
+export const getUserNotes = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+
+        const [countResult] = await db.query(
+            `SELECT COUNT(*) as total FROM notes_tbl WHERE Added_By = ? AND Is_Active = 1`, 
+            [userId]
+        );
+        const total = countResult[0].total;
+
+        const query = `
+            SELECT n.*, s.username as Author 
+            FROM notes_tbl n 
+            LEFT JOIN student_tbl s ON n.Added_By = s.S_ID
+            WHERE n.Added_By = ? AND n.Is_Active = 1
+            ORDER BY n.Added_on DESC
+            LIMIT ? OFFSET ?`;
+
+        const [notes] = await db.query(query, [userId, limit, offset]);
+
+        res.status(200).json({
+            status: true,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit),
+            notes: notes,
+        });
+    } catch (err) {
+        console.error("Fetch User Notes Error: ", err);
+        res.status(500).json({ status: false, error: "Failed to fetch user notes" });
+    }
+};
 
 export const addNotes = async(req,res)=>{
     const {Degree_ID,Subject_ID,Description,Added_By} = req.body;
@@ -31,7 +78,7 @@ export const addNotes = async(req,res)=>{
         await connection.beginTransaction();
         const addNotesQuery= `INSERT INTO notes_tbl (Note_File,Added_By,Added_on,Degree_ID,Subject_ID,Description,Is_Active) values (?,?,NOW(),?,?,?,1)`
 
-        await connection.query(addNotesQuery,[
+        const [result] = await connection.query(addNotesQuery,[
             Note_File,
             Added_By,
             Degree_ID,
@@ -39,11 +86,19 @@ export const addNotes = async(req,res)=>{
             Description
         ])
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-            message:"Notes Created Successfully",
-        })
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(201).json({
+                status: true,
+                message: "Notes Uploaded Successfully"
+            });
+        } else {
+            await connection.rollback();
+            res.status(400).json({
+            status: false,
+            message: "Failed to upload notes"
+        });
+        }
     }catch(err){
         if (connection) await connection.rollback();
         console.error("Notes Creation Error : ",err);
@@ -67,7 +122,7 @@ export const updateNotes = async(req,res)=>{
         const updateNotesQuery = `UPDATE notes_tbl SET Note_File = ?, Degree_ID= ?, Subject_ID = ?, Description = ? 
         WHERE N_ID = ?`;
 
-        connection.query(updateNotesQuery,[
+        const [result] = connection.query(updateNotesQuery,[
             Note_File,
             Degree_ID,
             Subject_ID,
@@ -75,11 +130,19 @@ export const updateNotes = async(req,res)=>{
             N_ID
         ])
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-            message:"Notes Updated Successfully",
-        })
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(200).json({ 
+                status: true, 
+                message: "Notes Updated Successfully" 
+            });
+        } else {
+            await connection.rollback();
+            res.status(404).json({ 
+                status: false, 
+                message: "Notes not found or no changes made" 
+            });
+        }
     }catch(err){
         if (connection) await connection.rollback();
         console.error("Notes Updation Error : ",err);
@@ -101,14 +164,22 @@ export const deleteNotes = async(req,res)=>{
         const deleteNotesQuery = `UPDATE notes_tbl 
         SET Deleted_On = NOW(), is_Active = 0 
         WHERE N_ID = ?`;
-        await connection.query(deleteNotesQuery,[id]);
+        
+        const [result] = await connection.query(deleteNotesQuery,[id]);
 
-        await connection.commit();
-
-        res.status(201).json({
-            status:true,
-            message:"Notes Deleted Successfully",
-        });
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(200).json({ 
+                status: true, 
+                message: "Notes Deleted Successfully" 
+            });
+        } else {
+            await connection.rollback();
+            res.status(404).json({ 
+                status: false, 
+                message: "Notes already deleted or not found" 
+            });
+        }
     }catch(err){
         if (connection) await connection.rollback();
         console.error("Notes Deletion Error",err);
