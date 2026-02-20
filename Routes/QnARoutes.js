@@ -1,9 +1,10 @@
-import { addAnswer, addQuestion, deleteAnswer, deleteQuestion, getQnA, updateAnswer, updateQuestion } from "../controllers/QnAController.js";
+import { addAnswer, addQuestion, deleteAnswer, deleteQuestion, getQnA, getUserQuestions, updateAnswer, updateQuestion } from "../controllers/QnAController.js";
 import express from "express";
 
 const qnaRouter = express.Router();
 
-qnaRouter.get("/allQnA",getQnA); //working
+qnaRouter.get("/",getQnA); //working
+qnaRouter.get("/userQuestions/:id", getUserQuestions);
 
 //question
 qnaRouter.post("/createQuestion",addQuestion); //working

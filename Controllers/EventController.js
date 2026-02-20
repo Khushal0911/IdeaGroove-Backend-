@@ -11,6 +11,16 @@ export const getEvents = async (req, res) => {
     const [countResult] = await db.query(countQuery);
     const total = countResult[0].total;
 
+    if (total === 0) {
+        return res.status(200).json({
+          success: true,
+          data: [],
+          total: 0,
+          page,
+          totalPages: 0
+        });
+    }
+      
     const query = `
       SELECT e.*, s.username as Contact_Person
       FROM event_tbl e
@@ -61,6 +71,15 @@ export const getUserEvents = async (req, res) => {
 
     const [events] = await db.query(query, [userId, limit, offset]);
 
+    if (events.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: "No events found for this user",
+        data: [],
+        total: 0
+      });
+    }
+    
     res.status(200).json({
       success: true,
       data: events,
@@ -116,17 +135,27 @@ export const updateEvents = async (req, res) => {
     await connection.beginTransaction();
 
     const updateEventQuery = `UPDATE event_tbl SET Poster_File = ?, Description = ?, Event_Date = ? Where E_ID = ?`;
-    await connection.query(updateEventQuery, [
+    const [updateResult] = await connection.query(updateEventQuery, [
       Poster_File,
       Description,
       Event_Date,
       E_ID,
     ]);
-    await connection.commit();
-    res.status(201).json({
-      status: true,
-      message: "Event updates successfully",
-    });
+
+    if (updateResult.affectedRows > 0) {
+      await connection.commit();
+      res.status(200).json({
+        status: true,
+        message: "Event updated successfully"
+      });
+    } else {
+      await connection.rollback();
+      res.status(404).json({
+        status: false,
+        message: "Event not found or no changes made"
+      });
+    }
+
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Event updation Error :", err);
@@ -146,14 +175,21 @@ export const deleteEvent = async (req, res) => {
     const deleteEventQuery = `UPDATE event_tbl 
         SET Deleted_On = NOW(), is_Active = 0 
         WHERE E_ID = ?`;
-    await connection.query(deleteEventQuery, [id]);
+    const [deleteResult] = await connection.query(deleteEventQuery, [id]);
 
-    await connection.commit();
-
-    res.status(201).json({
-      status: true,
-      message: "Event Deleted Successfully",
-    });
+    if (deleteResult.affectedRows > 0) {
+      await connection.commit();
+      res.status(200).json({
+        status: true,
+        message: "Event deleted successfully"
+      });
+    } else {
+      await connection.rollback();
+      res.status(404).json({
+        status: false,
+        message: "Event not found or already deleted"
+      });
+    }
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Event Deletion Error", err);

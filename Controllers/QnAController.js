@@ -1,35 +1,59 @@
 import db from "../config/db.js";
 
-export const getQnA = async(req,res)=>{
-    try{
-        const allQnAQuery = `SELECT 
-    q.Q_ID, 
-    q.Question, 
-    qs.username AS Question_Author, 
-    q.Added_On,
-    a.A_ID, 
-    a.Answer, 
-    ans.username AS Answer_Author, 
-    a.Answered_On,
-    (SELECT COUNT(*) FROM answer_tbl WHERE Q_ID = q.Q_ID AND Is_Active = 1) AS Total_Answers
-    FROM question_tbl q
-    LEFT JOIN student_tbl qs ON q.Added_By = qs.S_ID
-    LEFT JOIN answer_tbl a ON q.Q_ID = a.Q_ID AND a.Is_Active = 1
-    LEFT JOIN student_tbl ans ON a.Answered_By = ans.S_ID
-    WHERE q.Is_Active = 1`;
+export const getQnA = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
 
-        const [QnAData] = await db.query(allQnAQuery);
+        const [countResult] = await db.query(`SELECT COUNT(*) as total FROM question_tbl WHERE Is_Active = 1`);
+        const total = countResult[0].total;
+
+        const allQnAQuery = `
+            SELECT 
+                q.Q_ID, q.Question, qs.username AS Question_Author, q.Added_On,
+                a.A_ID, a.Answer, ans.username AS Answer_Author, a.Answered_On,
+                (SELECT COUNT(*) FROM answer_tbl WHERE Q_ID = q.Q_ID AND Is_Active = 1) AS Total_Answers
+            FROM question_tbl q
+            LEFT JOIN student_tbl qs ON q.Added_By = qs.S_ID
+            LEFT JOIN answer_tbl a ON q.Q_ID = a.Q_ID AND a.Is_Active = 1
+            LEFT JOIN student_tbl ans ON a.Answered_By = ans.S_ID
+            WHERE q.Is_Active = 1
+            ORDER BY q.Added_On DESC
+            LIMIT ? OFFSET ?`;
+
+        const [QnAData] = await db.query(allQnAQuery, [limit, offset]);
 
         res.status(200).json({
             success: true,
-            QnA:QnAData,
+            total,
+            page,
+            totalPages: Math.ceil(total / limit),
+            QnA: QnAData,
         });
+    } catch (err) {
+        console.error("Fetch QnA Error", err);
+        res.status(500).json({ status: false, error: "Failed to fetch QnA" });
+    }
+};
 
-    }catch(err){
-        console.error("Fetch QnA Error",err);
-        res.status(500).json({
-            error:"Failed to fetch error",
-        })
+export const getUserQuestions = async (req, res) => {
+    try {
+        const userId = req.params.id;
+        const [questions] = await db.query(
+            `SELECT * FROM question_tbl WHERE Added_By = ? AND Is_Active = 1 ORDER BY Added_On DESC`,
+            [userId]
+        );
+
+        res.status(200).json({ 
+            success: true, 
+            data: questions 
+        });
+    } catch (err) {
+        res.status(500).json({ 
+            status: false,
+            error: "Failed to fetch user questions"
+        });
     }
 };
 
@@ -44,18 +68,26 @@ export const addQuestion = async(req,res)=>{
         const addQuestionQuery = `INSERT INTO question_tbl (Question,Added_By,Added_On,Degree_ID,Subject_ID,Is_Active)
         VALUES (?,?,NOW(),?,?,1)`;
 
-        await connection.query(addQuestionQuery,[
+        const [result] = await connection.query(addQuestionQuery,[
             Question,
             Added_By,
             Degree_ID,
             Subject_ID
         ]);
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-            message:"Question Added Successfully",
-        });
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(201).json({ 
+                status: true, 
+                message: "Question Added Successfully" 
+            });
+        } else {
+            await connection.rollback();
+            res.status(400).json({ 
+                status: false, 
+                message: "Failed to add question" 
+            });
+        }
     }catch(err){
         if(connection) connection.rollback();
         console.error("Question Creation Error",err);
@@ -78,18 +110,20 @@ export const updateQuestion = async(req,res)=>{
         SET Question = ?, Degree_ID=?, Subject_ID=?
         WHERE Q_ID=?`;
 
-        await connection.query(updateQuestionQuery,[
+        const [result] = await connection.query(updateQuestionQuery,[
             Question,
             Degree_ID,
             Subject_ID,
             Q_ID
         ]);
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-            message:"Question Updated Successfully",
-        });
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(200).json({ status: true, message: "Question Updated Successfully" });
+        } else {
+            await connection.rollback();
+            res.status(404).json({ status: false, message: "Question not found or no changes made" });
+        }
 
     }catch(err){
         if(connection) connection.rollback();
@@ -113,15 +147,17 @@ export const deleteQuestion = async(req,res)=>{
         SET Is_Active = 0, Deleted_on = NOW() 
         WHERE Q_ID=?`;
 
-        await connection.query(deleteQuestionQuery,[
+        const [result] = await connection.query(deleteQuestionQuery,[
             Q_ID
         ]);
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-            message:"Question Deleted Successully",
-        })
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(200).json({ status: true, message: "Question Deleted Successfully" });
+        } else {
+            await connection.rollback();
+            res.status(404).json({ status: false, message: "Question not found" });
+        }
 
     }catch(err){
         if(connection) connection.rollback();
@@ -146,16 +182,19 @@ export const addAnswer = async(req,res)=>{
         const addAnswerQuery = `INSERT INTO answer_tbl (Answer,Q_ID,Answered_By,Answered_On,Is_Active)
         VALUES(?,?,?,NOW(),1)`;
 
-        await connection.query(addAnswerQuery,[
+        const [result] = await connection.query(addAnswerQuery,[
             Answer,
             Q_ID,
             Answered_By
         ]);
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-        });
+       if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(201).json({ status: true, message: "Answer posted successfully" });
+        } else {
+            await connection.rollback();
+            res.status(400).json({ status: false, message: "Failed to post answer" });
+        }
 
     }catch(err){
         if(connection) connection.rollback();
@@ -179,16 +218,18 @@ export const updateAnswer = async(req,res)=>{
         SET Answer = ?
         WHERE A_ID=?`;
 
-        await connection.query(updateQuestionQuery,[
+        const [result] = await connection.query(updateQuestionQuery,[
             Answer,
             A_ID
         ]);
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-            message:"Answer Updated Successfully",
-        });
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(200).json({ status: true, message: "Answer Updated Successfully" });
+        } else {
+            await connection.rollback();
+            res.status(404).json({ status: false, message: "Answer not found" });
+        }
 
     }catch(err){
         if(connection) connection.rollback();
@@ -213,15 +254,17 @@ export const deleteAnswer = async(req,res)=>{
         SET Is_Active = 0
         WHERE A_ID=?`;
 
-        await connection.query(deleteAnswerQuery,[
+        const [result] = await connection.query(deleteAnswerQuery,[
             A_ID
         ]);
 
-        await connection.commit();
-        res.status(201).json({
-            status:true,
-            message:"Answer Deleted Sucessfully",
-        });
+        if (result.affectedRows > 0) {
+            await connection.commit();
+            res.status(200).json({ status: true, message: "Answer Deleted Successfully" });
+        } else {
+            await connection.rollback();
+            res.status(404).json({ status: false, message: "Answer not found" });
+        }
     }catch(err){
         if(connection) connection.rollback();
         console.error("Answer Deletion Error : ",err);
@@ -231,4 +274,4 @@ export const deleteAnswer = async(req,res)=>{
     }finally{
         if(connection) connection.release();
     }
-}
+};
