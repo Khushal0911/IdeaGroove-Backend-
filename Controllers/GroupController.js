@@ -1,6 +1,6 @@
 import db from "../config/db.js";
 
-//pending getMembers
+
 
 export const getGroups = async(req,res)=>{
     try {
@@ -370,3 +370,28 @@ export const leaveGroup = async(req,res)=>{
         if (connection) connection.release();
     }
 };
+
+
+export const viewMembers = async(req,res)=>{
+    const {Room_ID} = req.params;
+    try{
+        const membersQuery = `SELECT rm.role as Role, s.username,s.name,r.Room_ID FROM chat_room_members_tbl rm
+        LEFT JOIN chat_rooms_tbl r ON r.Room_ID = rm.Room_ID
+        LEFT JOIN student_tbl s ON s.S_ID = rm.Student_ID
+        WHERE r.Room_ID = ?`;
+
+        const [membersDetails] = await db.query(membersQuery,[
+            Room_ID
+        ]);
+
+        res.status(201).json({
+            status:true,
+            membersDetails:membersDetails, 
+        });
+    }catch(err){
+        console.error("Unable to load members");
+        res.status(500).json({
+            error:"Unable to fetch members details",
+        })
+    }
+}
