@@ -1,5 +1,4 @@
 import db from "../config/db.js";
-
 export const getPublicProfile = async (req, res) => {
   const { id } = req.params;
 
@@ -22,12 +21,27 @@ export const getPublicProfile = async (req, res) => {
 
         d.Degree_Name,
 
-        -- Stats
-        COUNT(DISTINCT n.N_ID) AS notes_count,
-        COUNT(DISTINCT q.Q_ID) AS questions_count,
-        COUNT(DISTINCT e.E_ID) AS events_count,
-        COUNT(DISTINCT comp.Complaint_ID) AS complaints_count,
-        COUNT(DISTINCT crm.Member_ID) AS groups_count
+        -- Dynamic Stats (Subqueries instead of joins)
+
+        (SELECT COUNT(*) 
+         FROM notes_tbl n 
+         WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
+
+        (SELECT COUNT(*) 
+         FROM question_tbl q 
+         WHERE q.Added_By = s.S_ID AND q.Is_Active = 1) AS questions_count,
+
+        (SELECT COUNT(*) 
+         FROM event_tbl e 
+         WHERE e.Added_By = s.S_ID AND e.Is_Active = 1) AS events_count,
+
+        (SELECT COUNT(*) 
+         FROM complaint_tbl comp 
+         WHERE comp.Student_ID = s.S_ID AND comp.Is_Active = 1) AS complaints_count,
+
+        (SELECT COUNT(*) 
+         FROM chat_room_members_tbl crm 
+         WHERE crm.Student_ID = s.S_ID AND crm.Is_Active = 1) AS groups_count
 
       FROM student_tbl s
 
@@ -37,25 +51,8 @@ export const getPublicProfile = async (req, res) => {
       LEFT JOIN degree_tbl d 
         ON s.Degree_ID = d.Degree_ID
 
-      LEFT JOIN notes_tbl n 
-        ON s.S_ID = n.Added_By AND n.Is_Active = 1
-
-      LEFT JOIN question_tbl q 
-        ON s.S_ID = q.Added_By AND q.Is_Active = 1
-
-      LEFT JOIN event_tbl e 
-        ON s.S_ID = e.Added_By AND e.Is_Active = 1
-
-      LEFT JOIN complaint_tbl comp 
-        ON s.S_ID = comp.Student_ID AND comp.Is_Active = 1
-
-      LEFT JOIN chat_room_members_tbl crm 
-        ON s.S_ID = crm.Student_ID AND crm.Is_Active = 1
-
       WHERE s.S_ID = ?
-
-      GROUP BY s.S_ID
-    `,
+      `,
       [id],
     );
 
@@ -88,7 +85,7 @@ export const getStudentActivities = async (req, res) => {
         `;
         break;
 
-      case "Q&A":
+      case "QnA":
         query = `
           SELECT Q_ID as id, Question as title, Added_On as date
           FROM question_tbl
