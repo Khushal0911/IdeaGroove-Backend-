@@ -1,9 +1,9 @@
 import bcrypt from "bcryptjs";
 import db from "../config/db.js";
-import jwt from "jsonwebtoken"; // Import JWT
+import jwt from "jsonwebtoken"; 
 import nodemailer from "nodemailer";
 
-// --- FORGOT PASSWORD (STATELESS) ---
+
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
@@ -71,7 +71,7 @@ export const forgotPassword = async (req, res) => {
   }
 };
 
-// --- RESET PASSWORD (STATELESS) ---
+
 export const resetPassword = async (req, res) => {
   const { id, token } = req.params; // Get ID and Token from URL
   const { password } = req.body;
@@ -362,6 +362,61 @@ export const userLogout = (req, res) => {
     return res.status(200).json({ message: "Logged out successfully" });
   });
 };
+
+
+export const changePassword = async (req, res) => {
+  const { oldPassword, newPassword, S_ID } = req.body;
+  let connection;
+  if (!S_ID) {
+    return res.status(401).json({ message: "Unauthorized. Please log in." });
+  }
+
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [rows] = await connection.query(
+      "SELECT Password FROM student_tbl WHERE S_ID = ?",
+      [S_ID]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const user = rows[0];
+
+    
+    const isMatch = await bcrypt.compare(oldPassword, user.Password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Incorrect current password." });
+    }
+
+    const saltRounds = 10;
+    const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
+    
+    const [result] = await connection.query(
+      "UPDATE student_tbl SET Password = ? WHERE S_ID = ?",
+      [hashedNewPassword, S_ID]
+    );
+    
+    if (result.affectedRows>0){
+      await connection.commit();
+      res.status(201).json({ message: "Password changed successfully." });
+    }else{
+      await connection.rollback();
+      res.status(400).json({ message: "Password changed unsuccessfully." });
+    }
+
+  } catch (err) {
+    if(connection) connection.rollback();
+    console.error("Change Password Error:", err);
+    res.status(500).json({ message: "Server Error. Could not change password." });
+  }finally{
+    if(connection) connection.release();
+  }
+};
+
 
 export const sendOtp = async (req, res) => {
   const { email } = req.body;
