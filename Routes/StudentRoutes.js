@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  deleteStudent,
   getAllStudents,
   getPublicProfile,
   getStudentActivities,
@@ -11,5 +12,6 @@ studentRouter.get("/profile/:id", getPublicProfile);
 studentRouter.get("/all", getAllStudents);
 studentRouter.get("/:id/activities", getStudentActivities);
 studentRouter.post("/update",updateStudent);
+studentRouter.get("/delete/:id",deleteStudent);
 
 export default studentRouter;

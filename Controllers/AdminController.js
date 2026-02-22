@@ -56,3 +56,4 @@ export const adminLogout = (req, res) => {
     return res.status(200).json({ message: "Logged out successfully" });
   });
 };
+
