@@ -278,3 +278,41 @@ export const updateStudent = async(req,res)=>{
     if (connection) connection.release();
   }
 };
+
+
+export const deleteStudent = async(req,res)=>{
+  const { id } = req.params;
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const deleteStudentQuery = `UPDATE student_tbl 
+        SET is_Active = 0 
+        WHERE S_ID = ?`;
+
+    const [result] = await connection.query(deleteStudentQuery, [id]);
+
+    if (result.affectedRows > 0) {
+      await connection.commit();
+      res.status(200).json({
+        status: true,
+        message: "Student Deleted Successfully",
+      });
+    } else {
+      await connection.rollback();
+      res.status(404).json({
+        status: false,
+        message: "Student already deleted or not found",
+      });
+    }
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error("Student Deletion Error", err);
+    return res.status(500).json({
+      error: "Failed to delete student",
+    });
+  } finally {
+    if (connection) connection.release();
+  }
+}
