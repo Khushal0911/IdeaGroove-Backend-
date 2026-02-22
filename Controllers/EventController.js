@@ -12,23 +12,31 @@ export const getEvents = async (req, res) => {
     const total = countResult[0].total;
 
     if (total === 0) {
-        return res.status(200).json({
-          success: true,
-          data: [],
-          total: 0,
-          page,
-          totalPages: 0
-        });
+      return res.status(200).json({
+        success: true,
+        data: [],
+        total: 0,
+        page,
+        totalPages: 0,
+      });
     }
-      
+
     const query = `
-      SELECT e.*, s.username as Contact_Person
-      FROM event_tbl e
-      LEFT JOIN student_tbl s ON e.Added_By = s.S_ID
-      WHERE e.Is_Active = 1
-      ORDER BY e.Event_Date DESC
-      LIMIT ? OFFSET ?
-    `;
+  SELECT 
+    e.E_ID,
+    e.Poster_File,
+    e.Description,
+    e.Event_Date,
+    e.Added_On,
+    s.S_ID AS Organizer_ID,
+    s.Name AS Organizer_Name
+  FROM event_tbl e
+  LEFT JOIN student_tbl s 
+    ON e.Added_By = s.S_ID
+  WHERE e.Is_Active = 1
+  ORDER BY e.Event_Date DESC
+  LIMIT ? OFFSET ?
+`;
 
     const [events] = await db.query(query, [limit, offset]);
 
@@ -76,10 +84,10 @@ export const getUserEvents = async (req, res) => {
         success: true,
         message: "No events found for this user",
         data: [],
-        total: 0
+        total: 0,
       });
     }
-    
+
     res.status(200).json({
       success: true,
       data: events,
@@ -146,16 +154,15 @@ export const updateEvents = async (req, res) => {
       await connection.commit();
       res.status(200).json({
         status: true,
-        message: "Event updated successfully"
+        message: "Event updated successfully",
       });
     } else {
       await connection.rollback();
       res.status(404).json({
         status: false,
-        message: "Event not found or no changes made"
+        message: "Event not found or no changes made",
       });
     }
-
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Event updation Error :", err);
@@ -181,13 +188,13 @@ export const deleteEvent = async (req, res) => {
       await connection.commit();
       res.status(200).json({
         status: true,
-        message: "Event deleted successfully"
+        message: "Event deleted successfully",
       });
     } else {
       await connection.rollback();
       res.status(404).json({
         status: false,
-        message: "Event not found or already deleted"
+        message: "Event not found or already deleted",
       });
     }
   } catch (err) {
