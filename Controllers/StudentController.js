@@ -179,7 +179,7 @@ export const getAllStudents = async (req, res) => {
       return res.status(404).json({ error: "Users not found" });
     }
 
-    // 🔥 Group students with their hobbies
+    // Group students with their hobbies
     const studentsMap = {};
 
     rows.forEach((row) => {
@@ -226,5 +226,55 @@ export const getAllStudents = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
+  }
+};
+
+export const updateStudent = async(req,res)=>{
+  const { 
+    username, name, roll_no, college_id, 
+    degree_id, year, email, profile_pic, 
+    student_id, hobbies
+  } = req.body;
+
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const updateStudentQuery = `
+      UPDATE student_tbl
+      SET Username = ?, Name = ?, Roll_No = ?, College_ID = ?, Degree_ID = ?, Year = ?, Email = ?, Profile_Pic = ?
+      WHERE S_ID = ?`;
+
+    await connection.execute(updateStudentQuery, [
+      username, name, roll_no, college_id, 
+      degree_id, year, email, profile_pic, 
+      student_id
+    ]);
+
+    if (hobbies && Array.isArray(hobbies)) {
+      await connection.query(
+        `DELETE FROM student_Hobby_Mapping_tbl WHERE Student_ID = ?`, 
+        [student_id]
+      );
+
+      if (hobbies.length > 0) {
+        const hobbyValues = hobbies.map(hobbyId => [student_id, hobbyId]);
+        await connection.query(
+          `INSERT INTO student_Hobby_Mapping_tbl (Student_ID, Hobby_ID) VALUES ?`,
+          [hobbyValues]
+        );
+      }
+    }
+
+    await connection.commit();
+    res.status(200).json({ message: "Profile and hobbies updated successfully" });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error("Unable to update student details:", err);
+    res.status(500).json({ error: "Failed to update student details" });
+  } finally {
+    if (connection) connection.release();
   }
 };
