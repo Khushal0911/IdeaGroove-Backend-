@@ -16,6 +16,7 @@ export const getQnA = async (req, res) => {
         q.Q_ID,
         q.Question,
         qs.username AS Question_Author,
+        qs.S_ID AS Author_Id,
         q.Added_On,
         q.Is_Active,
         d.Degree_Name,
