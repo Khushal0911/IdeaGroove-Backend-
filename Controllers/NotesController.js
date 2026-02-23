@@ -128,9 +128,11 @@ export const addNotes = async (req, res) => {
     }
   } catch (err) {
     if (connection) await connection.rollback();
-    console.error("Notes Creation Error : ", err);
+    console.error("Notes Creation Error : ", {err,sqlMessage: err.sqlMessage
+    });
     res.status(500).json({
       error: "Failed to create Notes",
+      sqlMessage: err.sqlMessage
     });
   } finally {
     if (connection) connection.release();
