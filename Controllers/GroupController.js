@@ -141,7 +141,7 @@ export const addGroup = async (req, res) => {
 
     const addGroupQuery = `INSERT INTO chat_rooms_tbl
         (Room_Type,Room_Name,Based_On,Created_By,Created_On,Is_Active,Description) VALUES
-        ('Group',?,?,?,NOW(),1)`;
+        ('Group',?,?,?,NOW(),1,?)`;
 
     const [addResult] = await connection.query(addGroupQuery, [
       Room_Name,

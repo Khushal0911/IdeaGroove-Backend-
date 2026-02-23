@@ -1,6 +1,5 @@
 import db from "../config/db.js";
 
-//Getting events based on the page number sent by the frontend
 export const getEvents = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -24,6 +23,7 @@ export const getEvents = async (req, res) => {
     const query = `
   SELECT 
     e.E_ID,
+    e.Added_By,
     e.Poster_File,
     e.Description,
     e.Event_Date,
