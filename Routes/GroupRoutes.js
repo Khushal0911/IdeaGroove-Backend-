@@ -3,7 +3,8 @@ import { addGroup, deleteGroup, getGroups, getUserGroups, joinGroup, leaveGroup,
 
 const groupRouter = express.Router();
 
-groupRouter.get("/",getGroups);
+groupRouter.get("/", getGroups);
+
 groupRouter.get("/user/:id", getUserGroups);
 groupRouter.post("/create",addGroup);//working
 groupRouter.post("/joinGroup",joinGroup); //working
