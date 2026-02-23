@@ -1,4 +1,56 @@
 import db from "../config/db.js";
+
+export const searchStudents = async (req, res) => {
+  const { q, department, page = 1, limit = 20 } = req.query; // Default limit to 20 for performance
+  const offset = (page - 1) * limit;
+
+  try {
+    let query = `
+      SELECT 
+        s.S_ID, s.Name, s.Username, s.Profile_Pic, s.Roll_No, s.Year,
+        d.Degree_Name
+      FROM student_tbl s
+      LEFT JOIN degree_tbl d ON s.Degree_ID = d.Degree_ID
+      WHERE s.is_Active = 1
+    `;
+    const params = [];
+
+    if (q) {
+      query += ` AND (s.Name LIKE ? OR s.Username LIKE ?)`;
+      params.push(`%${q}%`, `%${q}%`);
+    }
+
+    if (department && department !== "All Departments") {
+      query += ` AND d.Degree_Name LIKE ?`;
+      params.push(`%${department}%`);
+    }
+
+    const [countRows] = await db.query(
+      `SELECT COUNT(*) as total FROM (${query}) as subquery`,
+      params,
+    );
+    const total = countRows[0].total;
+
+    query += ` ORDER BY s.Name ASC LIMIT ? OFFSET ?`;
+    params.push(parseInt(limit), parseInt(offset));
+
+    const [rows] = await db.query(query, params);
+
+    res.status(200).json({
+      status: true,
+      data: rows,
+      pagination: {
+        total,
+        page: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error("Search Students Error:", err);
+    res.status(500).json({ status: false, error: "Failed to search students" });
+  }
+};
+
 export const getPublicProfile = async (req, res) => {
   const { id } = req.params;
 
@@ -229,11 +281,18 @@ export const getAllStudents = async (req, res) => {
   }
 };
 
-export const updateStudent = async(req,res)=>{
-  const { 
-    username, name, roll_no, college_id, 
-    degree_id, year, email, profile_pic, 
-    student_id, hobbies
+export const updateStudent = async (req, res) => {
+  const {
+    username,
+    name,
+    roll_no,
+    college_id,
+    degree_id,
+    year,
+    email,
+    profile_pic,
+    student_id,
+    hobbies,
   } = req.body;
 
   let connection;
@@ -247,29 +306,36 @@ export const updateStudent = async(req,res)=>{
       WHERE S_ID = ?`;
 
     await connection.execute(updateStudentQuery, [
-      username, name, roll_no, college_id, 
-      degree_id, year, email, profile_pic, 
-      student_id
+      username,
+      name,
+      roll_no,
+      college_id,
+      degree_id,
+      year,
+      email,
+      profile_pic,
+      student_id,
     ]);
 
     if (hobbies && Array.isArray(hobbies)) {
       await connection.query(
-        `DELETE FROM student_Hobby_Mapping_tbl WHERE Student_ID = ?`, 
-        [student_id]
+        `DELETE FROM student_Hobby_Mapping_tbl WHERE Student_ID = ?`,
+        [student_id],
       );
 
       if (hobbies.length > 0) {
-        const hobbyValues = hobbies.map(hobbyId => [student_id, hobbyId]);
+        const hobbyValues = hobbies.map((hobbyId) => [student_id, hobbyId]);
         await connection.query(
           `INSERT INTO student_Hobby_Mapping_tbl (Student_ID, Hobby_ID) VALUES ?`,
-          [hobbyValues]
+          [hobbyValues],
         );
       }
     }
 
     await connection.commit();
-    res.status(200).json({ message: "Profile and hobbies updated successfully" });
-
+    res
+      .status(200)
+      .json({ message: "Profile and hobbies updated successfully" });
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Unable to update student details:", err);
@@ -279,8 +345,7 @@ export const updateStudent = async(req,res)=>{
   }
 };
 
-
-export const deleteStudent = async(req,res)=>{
+export const deleteStudent = async (req, res) => {
   const { id } = req.params;
   let connection;
   try {
@@ -315,4 +380,4 @@ export const deleteStudent = async(req,res)=>{
   } finally {
     if (connection) connection.release();
   }
-}
+};
