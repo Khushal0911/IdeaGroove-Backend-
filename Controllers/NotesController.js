@@ -148,7 +148,7 @@ export const updateNotes = async (req, res) => {
     const updateNotesQuery = `UPDATE notes_tbl SET Note_File = ?, Degree_ID= ?, Subject_ID = ?, Description = ? 
         WHERE N_ID = ?`;
 
-    const [result] = connection.query(updateNotesQuery, [
+    const [result] = await connection.query(updateNotesQuery, [
       Note_File,
       Degree_ID,
       Subject_ID,
