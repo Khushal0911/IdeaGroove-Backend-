@@ -229,11 +229,18 @@ export const getAllStudents = async (req, res) => {
   }
 };
 
-export const updateStudent = async(req,res)=>{
-  const { 
-    username, name, roll_no, college_id, 
-    degree_id, year, email, profile_pic, 
-    student_id, hobbies
+export const updateStudent = async (req, res) => {
+  const {
+    username,
+    name,
+    roll_no,
+    college_id,
+    degree_id,
+    year,
+    email,
+    profile_pic,
+    student_id,
+    hobbies,
   } = req.body;
 
   let connection;
@@ -247,29 +254,36 @@ export const updateStudent = async(req,res)=>{
       WHERE S_ID = ?`;
 
     await connection.execute(updateStudentQuery, [
-      username, name, roll_no, college_id, 
-      degree_id, year, email, profile_pic, 
-      student_id
+      username,
+      name,
+      roll_no,
+      college_id,
+      degree_id,
+      year,
+      email,
+      profile_pic,
+      student_id,
     ]);
 
     if (hobbies && Array.isArray(hobbies)) {
       await connection.query(
-        `DELETE FROM student_Hobby_Mapping_tbl WHERE Student_ID = ?`, 
-        [student_id]
+        `DELETE FROM student_Hobby_Mapping_tbl WHERE Student_ID = ?`,
+        [student_id],
       );
 
       if (hobbies.length > 0) {
-        const hobbyValues = hobbies.map(hobbyId => [student_id, hobbyId]);
+        const hobbyValues = hobbies.map((hobbyId) => [student_id, hobbyId]);
         await connection.query(
           `INSERT INTO student_Hobby_Mapping_tbl (Student_ID, Hobby_ID) VALUES ?`,
-          [hobbyValues]
+          [hobbyValues],
         );
       }
     }
 
     await connection.commit();
-    res.status(200).json({ message: "Profile and hobbies updated successfully" });
-
+    res
+      .status(200)
+      .json({ message: "Profile and hobbies updated successfully" });
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Unable to update student details:", err);
@@ -279,8 +293,7 @@ export const updateStudent = async(req,res)=>{
   }
 };
 
-
-export const deleteStudent = async(req,res)=>{
+export const deleteStudent = async (req, res) => {
   const { id } = req.params;
   let connection;
   try {
@@ -315,4 +328,4 @@ export const deleteStudent = async(req,res)=>{
   } finally {
     if (connection) connection.release();
   }
-}
+};
