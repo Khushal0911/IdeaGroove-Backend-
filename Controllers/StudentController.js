@@ -289,8 +289,8 @@ export const updateStudent = async (req, res) => {
     year,
     email,
     profile_pic,
-    student_id,
-    hobbies,
+    student_id, // Ensure this matches what frontend sends (user.id)
+    hobbies, // This is an array of strings: ["Acting", "Cricket"]
   } = req.body;
 
   let connection;
@@ -298,6 +298,8 @@ export const updateStudent = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
+    // 1. Update Basic Student Details
+    // Note: Ensure parameter order matches your ? placeholders exactly
     const updateStudentQuery = `
       UPDATE student_tbl
       SET Username = ?, Name = ?, Roll_No = ?, College_ID = ?, Degree_ID = ?, Year = ?, Email = ?, Profile_Pic = ?
@@ -315,25 +317,62 @@ export const updateStudent = async (req, res) => {
       student_id,
     ]);
 
+    // 2. Handle Hobbies (The Fix)
     if (hobbies && Array.isArray(hobbies)) {
+      // A. Delete existing mappings for this student
       await connection.query(
         `DELETE FROM student_Hobby_Mapping_tbl WHERE Student_ID = ?`,
         [student_id],
       );
 
+      // B. Process new hobbies
       if (hobbies.length > 0) {
-        const hobbyValues = hobbies.map((hobbyId) => [student_id, hobbyId]);
-        await connection.query(
-          `INSERT INTO student_Hobby_Mapping_tbl (Student_ID, Hobby_ID) VALUES ?`,
-          [hobbyValues],
-        );
+        const hobbyIdsToInsert = [];
+
+        for (const hobbyName of hobbies) {
+          // Check if hobby exists in master table (Change 'hobby_tbl' to your actual table name)
+          const [rows] = await connection.query(
+            "SELECT Hobby_ID FROM hobbies_tbl WHERE Hobby_Name = ?",
+            [hobbyName],
+          );
+
+          let currentHobbyId;
+
+          if (rows.length > 0) {
+            // Hobby exists, get its ID
+            currentHobbyId = rows[0].H_ID;
+          } else {
+            // Hobby doesn't exist, create it dynamically
+            const [result] = await connection.query(
+              "INSERT INTO hobby_tbl (Hobby_Name) VALUES (?)",
+              [hobbyName],
+            );
+            currentHobbyId = result.insertId;
+          }
+
+          // Add to our list for the final mapping insert
+          if (currentHobbyId) {
+            hobbyIdsToInsert.push([student_id, currentHobbyId]);
+          }
+        }
+
+        // C. Bulk Insert into Mapping Table using the IDs we found/created
+        if (hobbyIdsToInsert.length > 0) {
+          await connection.query(
+            `INSERT INTO student_Hobby_Mapping_tbl (Student_ID, Hobby_ID) VALUES ?`,
+            [hobbyIdsToInsert],
+          );
+        }
       }
     }
 
     await connection.commit();
-    res
-      .status(200)
-      .json({ message: "Profile and hobbies updated successfully" });
+
+    // Optional: Return the updated user data so frontend can update Redux immediately
+    res.status(200).json({
+      message: "Profile updated successfully",
+      updatedUser: req.body,
+    });
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Unable to update student details:", err);
