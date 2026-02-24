@@ -303,12 +303,10 @@ export const leaveGroup = async (req, res) => {
 
     if (!memberInfo.length || memberInfo[0].Is_Active === 0) {
       await connection.rollback();
-      return res
-        .status(400)
-        .json({
-          status: false,
-          message: "User is not an active member of this group",
-        });
+      return res.status(400).json({
+        status: false,
+        message: "User is not an active member of this group",
+      });
     }
 
     const userRole = memberInfo[0].Role;
