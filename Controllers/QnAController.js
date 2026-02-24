@@ -23,17 +23,33 @@ export const getQnA = async (req, res) => {
         d.Degree_ID,
         s.Subject_Name,
         s.Subject_ID,
+        ans.Profile_Pic,
 
-        COUNT(a.A_ID) AS Total_Answers,
+        (
+    SELECT COUNT(*) 
+    FROM answer_tbl a2
+    WHERE a2.Q_ID = q.Q_ID 
+      AND a2.Is_Active = 1
+) AS Total_Answers,
 
+(
+    SELECT COALESCE(
         JSON_ARRAYAGG(
             JSON_OBJECT(
-                'A_ID', a.A_ID,
-                'Answer', a.Answer,
-                'Answer_Author', ans.username,
-                'Answered_On', a.Answered_On
+                'A_ID', a3.A_ID,
+                'Answer', a3.Answer,
+                'Answer_Author', s2.username,
+                'Answered_On', a3.Answered_On
             )
-        ) AS Answers
+        ),
+        JSON_ARRAY()
+    )
+    FROM answer_tbl a3
+    LEFT JOIN student_tbl s2 
+        ON a3.Answered_By = s2.S_ID
+    WHERE a3.Q_ID = q.Q_ID
+      AND a3.Is_Active = 1
+) AS Answers
 
     FROM question_tbl q
 
@@ -56,14 +72,17 @@ export const getQnA = async (req, res) => {
     WHERE q.Is_Active = 1
 
     GROUP BY 
-        q.Q_ID,
-        q.Question,
-        qs.username,
-        q.Added_On,
-        d.Degree_Name,
-        d.Degree_ID,
-        s.Subject_Name,
-        s.Subject_ID
+    q.Q_ID,
+    q.Question,
+    qs.username,
+    qs.S_ID,
+    q.Added_On,
+    q.Is_Active,
+    d.Degree_Name,
+    d.Degree_ID,
+    s.Subject_Name,
+    s.Subject_ID,
+    ans.Profile_Pic
 
     ORDER BY q.Added_On DESC
     LIMIT ? OFFSET ?
