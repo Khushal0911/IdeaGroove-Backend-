@@ -1,18 +1,35 @@
 import db from "../config/db.js";
 
+// Replace your existing getGroups function in GroupController.js with this:
+
 export const getGroups = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 9;
     const offset = (page - 1) * limit;
+    const search = req.query.search?.trim() || "";
+    const filter = req.query.filter || "all"; // "all" | "newest_to_oldest" | "oldest_to_newest"
+
+    let conditions = ["r.Is_Active = 1", "r.Room_Type = 'group'"];
+    const queryParams = [];
+
+    if (search) {
+      conditions.push("(r.Room_Name LIKE ? OR r.Description LIKE ?)");
+      queryParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const orderClause =
+      filter === "oldest_to_newest"
+        ? "ORDER BY r.Created_On ASC"
+        : "ORDER BY r.Created_On DESC"; // default: newest first
 
     const [countResult] = await db.query(
-      `SELECT COUNT(*) as total 
-             FROM chat_rooms_tbl 
-             WHERE Is_Active = 1 
-             AND Room_Type = 'group'`,
+      `SELECT COUNT(DISTINCT r.Room_ID) as total 
+       FROM chat_rooms_tbl r
+       WHERE ${whereClause}`,
+      queryParams,
     );
-
     const total = countResult[0].total;
 
     const query = `
@@ -21,6 +38,7 @@ export const getGroups = async (req, res) => {
         r.Room_Name,
         r.Room_Type,
         r.Created_On,
+        r.Created_By,
         r.Is_Active,
         r.Description,
         r.Based_On,
@@ -28,31 +46,20 @@ export const getGroups = async (req, res) => {
         s.S_ID AS Creator_ID,
         h.Hobby_Name,
         COUNT(m.Member_ID) AS Member_Count
-    FROM chat_rooms_tbl r
-    LEFT JOIN student_tbl s 
-        ON r.Created_By = s.S_ID
-    LEFT JOIN hobbies_tbl h
-        ON r.Based_On = h.Hobby_ID
-    LEFT JOIN chat_room_members_tbl m 
-        ON r.Room_ID = m.Room_ID 
-        AND m.Is_Active = 1
-    WHERE r.Is_Active = 1
-      AND r.Room_Type = 'group'
-    GROUP BY 
-        r.Room_ID,
-        r.Room_Name,
-        r.Room_Type,
-        r.Created_On,
-        r.Is_Active,
-        r.Description,
-        r.Based_On,
-        s.username,
-        h.Hobby_Name
-    ORDER BY r.Created_On DESC
-    LIMIT ? OFFSET ?
+      FROM chat_rooms_tbl r
+      LEFT JOIN student_tbl s       ON r.Created_By = s.S_ID
+      LEFT JOIN hobbies_tbl h       ON r.Based_On = h.Hobby_ID
+      LEFT JOIN chat_room_members_tbl m 
+                                    ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+      WHERE ${whereClause}
+      GROUP BY 
+        r.Room_ID, r.Room_Name, r.Room_Type, r.Created_On, r.Created_By,
+        r.Is_Active, r.Description, r.Based_On, s.username, s.S_ID, h.Hobby_Name
+      ${orderClause}
+      LIMIT ? OFFSET ?
     `;
 
-    const [rooms] = await db.query(query, [limit, offset]);
+    const [rooms] = await db.query(query, [...queryParams, limit, offset]);
 
     res.status(200).json({
       status: true,
@@ -65,10 +72,7 @@ export const getGroups = async (req, res) => {
     });
   } catch (err) {
     console.error("Fetch Groups Error:", err);
-    res.status(500).json({
-      status: false,
-      error: "Failed to fetch groups",
-    });
+    res.status(500).json({ status: false, error: "Failed to fetch groups" });
   }
 };
 
