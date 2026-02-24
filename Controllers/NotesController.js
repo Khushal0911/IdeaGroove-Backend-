@@ -96,17 +96,18 @@ export const getUserNotes = async (req, res) => {
 };
 
 export const addNotes = async (req, res) => {
-  const { Degree_ID, Subject_ID, Description, Added_By } = req.body;
+  const { Degree_ID, Subject_ID, Description, Added_By } = req.body || {};
   const Note_File = req.file ? req.file.path : null;
-
+  const File_Name = req.file ? req.file.filename : null;
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
-    const addNotesQuery = `INSERT INTO notes_tbl (Note_File,Added_By,Added_on,Degree_ID,Subject_ID,Description,Is_Active) values (?,?,NOW(),?,?,?,1)`;
+    const addNotesQuery = `INSERT INTO notes_tbl (Note_File,File_Name, Added_By,Added_on,Degree_ID,Subject_ID,Description,Is_Active) values (?,?,?,NOW(),?,?,?,1)`;
 
     const [result] = await connection.query(addNotesQuery, [
       Note_File,
+      File_Name,
       Added_By,
       Degree_ID,
       Subject_ID,
@@ -128,11 +129,13 @@ export const addNotes = async (req, res) => {
     }
   } catch (err) {
     if (connection) await connection.rollback();
-    console.error("Notes Creation Error : ", {err,sqlMessage: err.sqlMessage
+    console.error("Notes Creation Error : ", {
+      err,
+      sqlMessage: err.sqlMessage,
     });
     res.status(500).json({
       error: "Failed to create Notes",
-      sqlMessage: err.sqlMessage
+      sqlMessage: err.sqlMessage,
     });
   } finally {
     if (connection) connection.release();
@@ -142,6 +145,7 @@ export const addNotes = async (req, res) => {
 export const updateNotes = async (req, res) => {
   const { Degree_ID, Subject_ID, Description, N_ID } = req.body;
   const Note_File = req.file ? req.file.path : null;
+  const File_Name = req.file ? req.file.filename : null;
 
   let connection;
   try {
@@ -152,6 +156,7 @@ export const updateNotes = async (req, res) => {
 
     const [result] = await connection.query(updateNotesQuery, [
       Note_File,
+      File_Name,
       Degree_ID,
       Subject_ID,
       Description,

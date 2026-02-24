@@ -6,7 +6,7 @@ import {
   getNotes,
   getUserNotes,
   updateNotes,
-} from "../controllers/NotesController.js";
+} from "../Controllers/NotesController.js";
 
 const notesRouter = express.Router();
 
