@@ -5,49 +5,57 @@ export const getEvents = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search?.trim() || "";
+    const filter = req.query.filter || "all"; // "all" | "upcoming" | "past"
 
-    const countQuery = `SELECT COUNT(*) as total FROM event_tbl WHERE Is_Active = 1`;
-    const [countResult] = await db.query(countQuery);
+    let conditions = ["e.Is_Active = 1"];
+    const queryParams = [];
+
+    if (search) {
+      conditions.push("e.Description LIKE ?");
+      queryParams.push(`%${search}%`);
+    }
+
+    if (filter === "upcoming") {
+      conditions.push("e.Event_Date >= NOW()");
+    } else if (filter === "past") {
+      conditions.push("e.Event_Date < NOW()");
+    }
+
+    const whereClause = conditions.join(" AND ");
+
+    const countQuery = `SELECT COUNT(*) as total FROM event_tbl e WHERE ${whereClause}`;
+    const [countResult] = await db.query(countQuery, queryParams);
     const total = countResult[0].total;
 
     if (total === 0) {
-      return res.status(200).json({
-        success: true,
-        data: [],
-        total: 0,
-        page,
-        totalPages: 0,
-      });
+      return res
+        .status(200)
+        .json({ success: true, data: [], total: 0, page, totalPages: 0 });
     }
 
     const query = `
-  SELECT 
-    e.E_ID,
-    e.Added_By,
-    e.Poster_File,
-    e.Description,
-    e.Event_Date,
-    e.Added_On,
-    e.Is_Active,
-    s.S_ID AS Organizer_ID,
-    s.Name AS Organizer_Name
-  FROM event_tbl e
-  LEFT JOIN student_tbl s 
-    ON e.Added_By = s.S_ID
-  WHERE e.Is_Active = 1
-  ORDER BY e.Event_Date DESC
-  LIMIT ? OFFSET ?
-`;
+      SELECT e.E_ID, e.Added_By, e.Poster_File, e.Description,
+             e.Event_Date, e.Added_On, e.Is_Active,
+             s.S_ID AS Organizer_ID, s.Name AS Organizer_Name
+      FROM event_tbl e
+      LEFT JOIN student_tbl s ON e.Added_By = s.S_ID
+      WHERE ${whereClause}
+      ORDER BY e.Event_Date DESC
+      LIMIT ? OFFSET ?
+    `;
 
-    const [events] = await db.query(query, [limit, offset]);
+    const [events] = await db.query(query, [...queryParams, limit, offset]);
 
-    res.status(200).json({
-      success: true,
-      data: events,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    });
+    res
+      .status(200)
+      .json({
+        success: true,
+        data: events,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch events" });
   }
@@ -135,7 +143,8 @@ export const addEvent = async (req, res) => {
 };
 
 export const updateEvents = async (req, res) => {
-  const { Description, Event_Date, E_ID } = req.body;
+  const { id } = req.params; // E_ID from URL
+  const { Description, Event_Date } = req.body;
   const Poster_File = req.file ? req.file.path : null;
 
   let connection;
@@ -143,31 +152,42 @@ export const updateEvents = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const updateEventQuery = `UPDATE event_tbl SET Poster_File = ?, Description = ?, Event_Date = ? Where E_ID = ?`;
-    const [updateResult] = await connection.query(updateEventQuery, [
-      Poster_File,
-      Description,
-      Event_Date,
-      E_ID,
-    ]);
+    let query = `UPDATE event_tbl SET Description = ?, Event_Date = ?`;
+    const params = [Description?.trim() || null, Event_Date];
 
-    if (updateResult.affectedRows > 0) {
-      await connection.commit();
-      res.status(200).json({
-        status: true,
-        message: "Event updated successfully",
-      });
-    } else {
-      await connection.rollback();
-      res.status(404).json({
-        status: false,
-        message: "Event not found or no changes made",
-      });
+    if (Poster_File) {
+      query += `, Poster_File = ?`;
+      params.push(Poster_File);
     }
+
+    query += ` WHERE E_ID = ?`;
+    params.push(id);
+
+    const [result] = await connection.query(query, params);
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+      return res
+        .status(404)
+        .json({ status: false, message: "Event not found" });
+    }
+
+    const [updated] = await connection.query(
+      `SELECT * FROM event_tbl WHERE E_ID = ?`,
+      [id],
+    );
+
+    await connection.commit();
+
+    res.status(200).json({
+      status: true,
+      message: "Event updated successfully",
+      data: updated[0],
+    });
   } catch (err) {
     if (connection) await connection.rollback();
-    console.error("Event updation Error :", err);
-    return res.status(500).json({ error: "Failed to update event." });
+    console.error("Event Update Error:", err);
+    res.status(500).json({ error: "Failed to update event" });
   } finally {
     if (connection) connection.release();
   }

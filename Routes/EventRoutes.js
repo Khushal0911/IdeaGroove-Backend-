@@ -14,7 +14,7 @@ const eventRouter = express.Router();
 eventRouter.post("/create", upload.single("Poster_File"), addEvent);
 eventRouter.get("/", getEvents);
 eventRouter.get("/user/:id", getUserEvents);
-eventRouter.post("/update", upload.single("Poster_File"), updateEvents);
+eventRouter.put("/update/:id", upload.single("Poster_File"), updateEvents);
 eventRouter.get("/delete/:id", deleteEvent);
 eventRouter.post("/engagement", updateEventEngagement);
 
