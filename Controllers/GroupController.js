@@ -7,18 +7,50 @@ export const getGroups = async (req, res) => {
     const offset = (page - 1) * limit;
 
     const [countResult] = await db.query(
-      `SELECT COUNT(*) as total FROM chat_rooms_tbl WHERE Is_Active = 1`,
+      `SELECT COUNT(*) as total 
+             FROM chat_rooms_tbl 
+             WHERE Is_Active = 1 
+             AND Room_Type = 'group'`,
     );
+
     const total = countResult[0].total;
 
     const query = `
-            SELECT r.*, s.username as Creator_Name 
-            FROM chat_rooms_tbl r
-            LEFT JOIN student_tbl s ON r.Created_By = s.S_ID
-            WHERE r.Is_Active = 1
-            ORDER BY r.Created_On DESC
-            LIMIT ? OFFSET ?
-        `;
+      SELECT 
+        r.Room_ID,
+        r.Room_Name,
+        r.Room_Type,
+        r.Created_On,
+        r.Is_Active,
+        r.Description,
+        r.Based_On,
+        s.username AS Creator_Name,
+        s.S_ID AS Creator_ID,
+        h.Hobby_Name,
+        COUNT(m.Member_ID) AS Member_Count
+    FROM chat_rooms_tbl r
+    LEFT JOIN student_tbl s 
+        ON r.Created_By = s.S_ID
+    LEFT JOIN hobbies_tbl h
+        ON r.Based_On = h.Hobby_ID
+    LEFT JOIN chat_room_members_tbl m 
+        ON r.Room_ID = m.Room_ID 
+        AND m.Is_Active = 1
+    WHERE r.Is_Active = 1
+      AND r.Room_Type = 'group'
+    GROUP BY 
+        r.Room_ID,
+        r.Room_Name,
+        r.Room_Type,
+        r.Created_On,
+        r.Is_Active,
+        r.Description,
+        r.Based_On,
+        s.username,
+        h.Hobby_Name
+    ORDER BY r.Created_On DESC
+    LIMIT ? OFFSET ?
+    `;
 
     const [rooms] = await db.query(query, [limit, offset]);
 
@@ -33,7 +65,10 @@ export const getGroups = async (req, res) => {
     });
   } catch (err) {
     console.error("Fetch Groups Error:", err);
-    res.status(500).json({ status: false, error: "Failed to fetch groups" });
+    res.status(500).json({
+      status: false,
+      error: "Failed to fetch groups",
+    });
   }
 };
 
@@ -374,7 +409,7 @@ export const leaveGroup = async (req, res) => {
 export const viewMembers = async (req, res) => {
   const { Room_ID } = req.params;
   try {
-    const membersQuery = `SELECT rm.role as Role, s.username,s.name,r.Room_ID FROM chat_room_members_tbl rm
+    const membersQuery = `SELECT rm.role as role, s.username,s.name, s.Profile_Pic,r.Room_ID FROM chat_room_members_tbl rm
         LEFT JOIN chat_rooms_tbl r ON r.Room_ID = rm.Room_ID
         LEFT JOIN student_tbl s ON s.S_ID = rm.Student_ID
         WHERE r.Room_ID = ?`;

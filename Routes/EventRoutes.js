@@ -4,6 +4,7 @@ import {
   deleteEvent,
   getEvents,
   getUserEvents,
+  updateEventEngagement,
   updateEvents,
 } from "../controllers/EventController.js";
 import { upload } from "../config/cloud.js";
@@ -15,5 +16,6 @@ eventRouter.get("/", getEvents);
 eventRouter.get("/user/:id", getUserEvents);
 eventRouter.post("/update", upload.single("Poster_File"), updateEvents);
 eventRouter.get("/delete/:id", deleteEvent);
+eventRouter.post("/engagement", updateEventEngagement);
 
 export default eventRouter;
