@@ -67,13 +67,11 @@ export const getPublicProfile = async (req, res) => {
         s.Year,
         s.is_Active,
 
+        s.College_ID,
         c.College_Name,
-        c.City,
-        c.State,
 
+        s.Degree_ID,
         d.Degree_Name,
-
-        -- Dynamic Stats (Subqueries instead of joins)
 
         (SELECT COUNT(*) 
          FROM notes_tbl n 
