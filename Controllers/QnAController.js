@@ -5,9 +5,43 @@ export const getQnA = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search?.trim() || "";
+    const filter = req.query.filter || "all"; // "all" | "newest_to_oldest" | "oldest_to_newest"
+    const degreeId = req.query.degree ? parseInt(req.query.degree) : null;
+    const subjectId = req.query.subject ? parseInt(req.query.subject) : null;
+
+    // Build dynamic WHERE conditions
+    let conditions = ["q.Is_Active = 1"];
+    const queryParams = [];
+
+    if (search) {
+      conditions.push("q.Question LIKE ?");
+      queryParams.push(`%${search}%`);
+    }
+
+    if (degreeId) {
+      conditions.push("q.Degree_ID = ?");
+      queryParams.push(degreeId);
+    }
+
+    if (subjectId) {
+      conditions.push("q.Subject_ID = ?");
+      queryParams.push(subjectId);
+    }
+
+    const whereClause = conditions.join(" AND ");
+
+    // Sort order
+    const orderClause =
+      filter === "oldest_to_newest"
+        ? "ORDER BY q.Added_On ASC"
+        : "ORDER BY q.Added_On DESC"; // default: newest first
 
     const [countResult] = await db.query(
-      `SELECT COUNT(*) as total FROM question_tbl WHERE Is_Active = 1`,
+      `SELECT COUNT(DISTINCT q.Q_ID) as total 
+       FROM question_tbl q 
+       WHERE ${whereClause}`,
+      queryParams,
     );
     const total = countResult[0].total;
 
@@ -24,33 +58,33 @@ export const getQnA = async (req, res) => {
         d.Degree_ID,
         s.Subject_Name,
         s.Subject_ID,
-        ans.Profile_Pic,
 
         (
-    SELECT COUNT(*) 
-    FROM answer_tbl a2
-    WHERE a2.Q_ID = q.Q_ID 
-      AND a2.Is_Active = 1
-) AS Total_Answers,
+          SELECT COUNT(*) 
+          FROM answer_tbl a2
+          WHERE a2.Q_ID = q.Q_ID 
+            AND a2.Is_Active = 1
+        ) AS Total_Answers,
 
-(
-    SELECT COALESCE(
-        JSON_ARRAYAGG(
-            JSON_OBJECT(
+        (
+          SELECT COALESCE(
+            JSON_ARRAYAGG(
+              JSON_OBJECT(
                 'A_ID', a3.A_ID,
                 'Answer', a3.Answer,
                 'Answer_Author', s2.username,
-                'Answered_On', a3.Answered_On
-            )
-        ),
-        JSON_ARRAY()
-    )
-    FROM answer_tbl a3
-    LEFT JOIN student_tbl s2 
-        ON a3.Answered_By = s2.S_ID
-    WHERE a3.Q_ID = q.Q_ID
-      AND a3.Is_Active = 1
-) AS Answers
+                'Answered_On', a3.Answered_On,
+                'Answered_By', a3.Answered_By
+              )
+            ),
+            JSON_ARRAY()
+          )
+          FROM answer_tbl a3
+          LEFT JOIN student_tbl s2 
+              ON a3.Answered_By = s2.S_ID
+          WHERE a3.Q_ID = q.Q_ID
+            AND a3.Is_Active = 1
+        ) AS Answers
 
     FROM question_tbl q
 
@@ -63,32 +97,29 @@ export const getQnA = async (req, res) => {
     LEFT JOIN subject_tbl s 
         ON q.Subject_ID = s.Subject_ID
 
-    LEFT JOIN answer_tbl a 
-        ON q.Q_ID = a.Q_ID 
-        AND a.Is_Active = 1
-
-    LEFT JOIN student_tbl ans 
-        ON a.Answered_By = ans.S_ID
-
-    WHERE q.Is_Active = 1
+    WHERE ${whereClause}
 
     GROUP BY 
-    q.Q_ID,
-    q.Question,
-    qs.username,
-    qs.S_ID,
-    q.Added_On,
-    q.Is_Active,
-    d.Degree_Name,
-    d.Degree_ID,
-    s.Subject_Name,
-    s.Subject_ID,
-    ans.Profile_Pic
+        q.Q_ID,
+        q.Question,
+        qs.username,
+        qs.S_ID,
+        q.Added_On,
+        q.Is_Active,
+        d.Degree_Name,
+        d.Degree_ID,
+        s.Subject_Name,
+        s.Subject_ID
 
-    ORDER BY q.Added_On DESC
+    ${orderClause}
     LIMIT ? OFFSET ?
 `;
-    const [QnAData] = await db.query(allQnAQuery, [limit, offset]);
+
+    const [QnAData] = await db.query(allQnAQuery, [
+      ...queryParams,
+      limit,
+      offset,
+    ]);
 
     res.status(200).json({
       success: true,
@@ -100,6 +131,30 @@ export const getQnA = async (req, res) => {
   } catch (err) {
     console.error("Fetch QnA Error", err);
     res.status(500).json({ status: false, error: "Failed to fetch QnA" });
+  }
+};
+
+export const getAnswersByQuestion = async (req, res) => {
+  const { Q_ID } = req.params;
+  try {
+    const [answers] = await db.query(
+      `SELECT 
+        a.A_ID,
+        a.Answer,
+        a.Answered_On,
+        a.Answered_By,
+        s.username AS Answer_Author
+      FROM answer_tbl a
+      LEFT JOIN student_tbl s ON a.Answered_By = s.S_ID
+      WHERE a.Q_ID = ? AND a.Is_Active = 1
+      ORDER BY a.Answered_On ASC`,
+      [Q_ID],
+    );
+
+    res.status(200).json({ success: true, answers });
+  } catch (err) {
+    console.error("Fetch answers error", err);
+    res.status(500).json({ error: "Failed to fetch answers" });
   }
 };
 

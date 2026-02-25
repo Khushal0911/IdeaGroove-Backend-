@@ -3,53 +3,82 @@ import db from "../config/db.js";
 export const getNotes = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 9;
     const offset = (page - 1) * limit;
+    const search = req.query.search?.trim() || "";
+    const filter = req.query.filter || "all";
+    const degreeId = req.query.degree ? parseInt(req.query.degree) : null;
+    const subjectId = req.query.subject ? parseInt(req.query.subject) : null;
+
+    let conditions = ["n.Is_Active = 1"];
+    const queryParams = [];
+
+    if (search) {
+      conditions.push("(n.Description LIKE ? OR sub.Subject_Name LIKE ?)");
+      queryParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (degreeId) {
+      conditions.push("n.Degree_ID = ?");
+      queryParams.push(degreeId);
+    }
+
+    if (subjectId) {
+      conditions.push("n.Subject_ID = ?");
+      queryParams.push(subjectId);
+    }
+
+    const whereClause = conditions.join(" AND ");
+    const orderClause =
+      filter === "oldest_to_newest"
+        ? "ORDER BY n.Added_on ASC"
+        : "ORDER BY n.Added_on DESC";
 
     const [countResult] = await db.query(
-      `SELECT COUNT(*) as total FROM notes_tbl WHERE Is_Active = 1`,
+      `SELECT COUNT(*) as total 
+       FROM notes_tbl n
+       LEFT JOIN subject_tbl sub ON n.Subject_ID = sub.Subject_ID
+       WHERE ${whereClause}`,
+      queryParams,
     );
     const total = countResult[0].total;
 
     const allNotesQuery = `
-  SELECT 
-    n.N_ID,
-    n.Note_File,
-    n.Description,
-    n.Is_Active,
-    n.Added_on,
+      SELECT 
+        n.N_ID,
+        n.Note_File,
+        n.File_Name,
+        n.Description,
+        n.Is_Active,
+        n.Added_on,
+        n.Added_By,
+        s.Username AS Author,
+        s.S_ID AS Author_ID,
+        d.Degree_Name,
+        d.Degree_ID,
+        sub.Subject_Name,
+        sub.Subject_ID
+      FROM notes_tbl n
+      LEFT JOIN student_tbl s   ON n.Added_By = s.S_ID
+      LEFT JOIN degree_tbl d    ON n.Degree_ID = d.Degree_ID
+      LEFT JOIN subject_tbl sub ON n.Subject_ID = sub.Subject_ID
+      WHERE ${whereClause}
+      ${orderClause}
+      LIMIT ? OFFSET ?
+    `;
 
-    s.Username AS Author,
-    s.S_ID AS Author_ID,
-
-    d.Degree_Name,
-    sub.Subject_Name
-
-  FROM notes_tbl n
-
-  LEFT JOIN student_tbl s 
-    ON n.Added_By = s.S_ID
-
-  LEFT JOIN degree_tbl d 
-    ON n.Degree_ID = d.Degree_ID
-
-  LEFT JOIN subject_tbl sub 
-    ON n.Subject_ID = sub.Subject_ID
-
-  WHERE n.Is_Active = 1
-
-  ORDER BY n.Added_on DESC
-  LIMIT ? OFFSET ?
-`;
-
-    const [notes] = await db.query(allNotesQuery, [limit, offset]);
+    const [notes] = await db.query(allNotesQuery, [
+      ...queryParams,
+      limit,
+      offset,
+    ]);
 
     res.status(200).json({
       status: true,
       total,
       page,
       totalPages: Math.ceil(total / limit),
-      notes: notes,
+      notes,
     });
   } catch (err) {
     console.error("Fetch Notes Error: ", err);
@@ -71,12 +100,12 @@ export const getUserNotes = async (req, res) => {
     const total = countResult[0].total;
 
     const query = `
-            SELECT n.*, s.username as Author 
-            FROM notes_tbl n 
-            LEFT JOIN student_tbl s ON n.Added_By = s.S_ID
-            WHERE n.Added_By = ? AND n.Is_Active = 1
-            ORDER BY n.Added_on DESC
-            LIMIT ? OFFSET ?`;
+      SELECT n.*, s.Username as Author 
+      FROM notes_tbl n 
+      LEFT JOIN student_tbl s ON n.Added_By = s.S_ID
+      WHERE n.Added_By = ? AND n.Is_Active = 1
+      ORDER BY n.Added_on DESC
+      LIMIT ? OFFSET ?`;
 
     const [notes] = await db.query(query, [userId, limit, offset]);
 
@@ -85,7 +114,7 @@ export const getUserNotes = async (req, res) => {
       total,
       page,
       totalPages: Math.ceil(total / limit),
-      notes: notes,
+      notes,
     });
   } catch (err) {
     console.error("Fetch User Notes Error: ", err);
@@ -103,7 +132,8 @@ export const addNotes = async (req, res) => {
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
-    const addNotesQuery = `INSERT INTO notes_tbl (Note_File,File_Name, Added_By,Added_on,Degree_ID,Subject_ID,Description,Is_Active) values (?,?,?,NOW(),?,?,?,1)`;
+
+    const addNotesQuery = `INSERT INTO notes_tbl (Note_File, File_Name, Added_By, Added_on, Degree_ID, Subject_ID, Description, Is_Active) VALUES (?, ?, ?, NOW(), ?, ?, ?, 1)`;
 
     const [result] = await connection.query(addNotesQuery, [
       Note_File,
@@ -116,16 +146,14 @@ export const addNotes = async (req, res) => {
 
     if (result.affectedRows > 0) {
       await connection.commit();
-      res.status(201).json({
-        status: true,
-        message: "Notes Uploaded Successfully",
-      });
+      res
+        .status(201)
+        .json({ status: true, message: "Notes Uploaded Successfully" });
     } else {
       await connection.rollback();
-      res.status(400).json({
-        status: false,
-        message: "Failed to upload notes",
-      });
+      res
+        .status(400)
+        .json({ status: false, message: "Failed to upload notes" });
     }
   } catch (err) {
     if (connection) await connection.rollback();
@@ -133,10 +161,9 @@ export const addNotes = async (req, res) => {
       err,
       sqlMessage: err.sqlMessage,
     });
-    res.status(500).json({
-      error: "Failed to create Notes",
-      sqlMessage: err.sqlMessage,
-    });
+    res
+      .status(500)
+      .json({ error: "Failed to create Notes", sqlMessage: err.sqlMessage });
   } finally {
     if (connection) connection.release();
   }
@@ -151,37 +178,44 @@ export const updateNotes = async (req, res) => {
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
-    const updateNotesQuery = `UPDATE notes_tbl SET Note_File = ?, Degree_ID= ?, Subject_ID = ?, Description = ? 
-        WHERE N_ID = ?`;
 
-    const [result] = await connection.query(updateNotesQuery, [
-      Note_File,
-      File_Name,
-      Degree_ID,
-      Subject_ID,
-      Description,
-      N_ID,
-    ]);
+    let updateNotesQuery;
+    let queryParams;
+
+    if (Note_File && File_Name) {
+      // New file uploaded — update everything including file fields
+      updateNotesQuery = `UPDATE notes_tbl SET Note_File = ?, File_Name = ?, Degree_ID = ?, Subject_ID = ?, Description = ? WHERE N_ID = ?`;
+      queryParams = [
+        Note_File,
+        File_Name,
+        Degree_ID,
+        Subject_ID,
+        Description,
+        N_ID,
+      ];
+    } else {
+      // No new file — keep existing file, update only metadata
+      updateNotesQuery = `UPDATE notes_tbl SET Degree_ID = ?, Subject_ID = ?, Description = ? WHERE N_ID = ?`;
+      queryParams = [Degree_ID, Subject_ID, Description, N_ID];
+    }
+
+    const [result] = await connection.query(updateNotesQuery, queryParams);
 
     if (result.affectedRows > 0) {
       await connection.commit();
-      res.status(200).json({
-        status: true,
-        message: "Notes Updated Successfully",
-      });
+      res
+        .status(200)
+        .json({ status: true, message: "Notes Updated Successfully" });
     } else {
       await connection.rollback();
-      res.status(404).json({
-        status: false,
-        message: "Notes not found or no changes made",
-      });
+      res
+        .status(404)
+        .json({ status: false, message: "Notes not found or no changes made" });
     }
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Notes Updation Error : ", err);
-    return res.status(500).json({
-      error: "Failed to update notes",
-    });
+    return res.status(500).json({ error: "Failed to update notes" });
   } finally {
     if (connection) connection.release();
   }
@@ -194,31 +228,24 @@ export const deleteNotes = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const deleteNotesQuery = `UPDATE notes_tbl 
-        SET Deleted_On = NOW(), is_Active = 0 
-        WHERE N_ID = ?`;
-
+    const deleteNotesQuery = `UPDATE notes_tbl SET Deleted_On = NOW(), Is_Active = 0 WHERE N_ID = ?`;
     const [result] = await connection.query(deleteNotesQuery, [id]);
 
     if (result.affectedRows > 0) {
       await connection.commit();
-      res.status(200).json({
-        status: true,
-        message: "Notes Deleted Successfully",
-      });
+      res
+        .status(200)
+        .json({ status: true, message: "Notes Deleted Successfully" });
     } else {
       await connection.rollback();
-      res.status(404).json({
-        status: false,
-        message: "Notes already deleted or not found",
-      });
+      res
+        .status(404)
+        .json({ status: false, message: "Notes already deleted or not found" });
     }
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Notes Deletion Error", err);
-    return res.status(500).json({
-      error: "Failed to delete notes",
-    });
+    return res.status(500).json({ error: "Failed to delete notes" });
   } finally {
     if (connection) connection.release();
   }
