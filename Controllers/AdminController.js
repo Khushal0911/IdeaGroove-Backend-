@@ -56,3 +56,40 @@ export const adminLogout = (req, res) => {
     return res.status(200).json({ message: "Logged out successfully" });
   });
 };
+
+export const getDashboardStats = async (req, res) => {
+  try {
+    const [users] = await db.query(
+      "SELECT COUNT(*) AS total FROM student_tbl WHERE Is_Active = 1",
+    );
+
+    const [notes] = await db.query("SELECT COUNT(*) AS total FROM notes_tbl");
+
+    const [questions] = await db.query(
+      "SELECT COUNT(*) AS total FROM question_tbl",
+    );
+
+    const [groups] = await db.query(
+      "SELECT COUNT(*) AS total FROM chat_rooms_tbl WHERE Is_Active = 1",
+    );
+
+    const [events] = await db.query(
+      "SELECT COUNT(*) AS total FROM event_tbl WHERE Event_Date >= CURDATE()",
+    );
+
+    const [complaints] = await db.query(
+      "SELECT COUNT(*) AS total FROM complaint_tbl WHERE status = 'pending'",
+    );
+
+    res.json({
+      totalUsers: users[0].total,
+      totalNotes: notes[0].total,
+      totalQuestions: questions[0].total,
+      activeGroups: groups[0].total,
+      upcomingEvents: events[0].total,
+      complaints: complaints[0].total,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch dashboard stats" });
+  }
+};
