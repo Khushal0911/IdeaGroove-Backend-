@@ -19,7 +19,7 @@ studentRouter.get("/search", searchStudents);
 studentRouter.get("/all", getAllStudents);
 studentRouter.get("/:id/activities", getStudentActivities);
 studentRouter.post("/update", updateStudent);
-studentRouter.get("/delete/:id", deleteStudent);
+studentRouter.delete("/:id", deleteStudent);
 studentRouter.get("/me/:id", getCurrentStudent);
 
 studentRouter.get("/meta/colleges", getColleges);
