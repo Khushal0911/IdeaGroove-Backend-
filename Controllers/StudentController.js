@@ -597,12 +597,14 @@ export const getCurrentStudent = async (req, res) => {
 // IdeaGroove-Backend -> controllers -> StudentController.js
 
 export const updateStudent = async (req, res) => {
+
   const { student_id, username, name, roll_no, college_id, degree_id, year, email, profile_pic, hobbies } = req.body;
 
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
+
 
     // 1. Fetch current data to use as fallback for any undefined fields
     const [current] = await connection.query("SELECT * FROM student_tbl WHERE S_ID = ?", [student_id]);
@@ -630,6 +632,7 @@ export const updateStudent = async (req, res) => {
 
     await connection.execute(updateQuery, params);
 
+
     // 3. Sync Hobbies
     if (hobbies && Array.isArray(hobbies)) {
       await connection.query("DELETE FROM student_hobby_mapping_tbl WHERE Student_ID = ?", [student_id]);
@@ -640,6 +643,7 @@ export const updateStudent = async (req, res) => {
     }
 
     await connection.commit();
+
     res.status(200).json({ message: "Update successful" });
   } catch (err) {
     if (connection) await connection.rollback();

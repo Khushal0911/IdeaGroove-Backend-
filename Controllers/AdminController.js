@@ -23,7 +23,7 @@ export const adminLogin = async (req, res) => {
         .cookie("admin_token", "authorized_access_granted", {
           httpOnly: true,
           sameSite: "strict",
-          maxAge: 24 * 60 * 60 * 1000, // 1 day
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 1 day
         })
         .json({
           success: true,
@@ -56,4 +56,3 @@ export const adminLogout = (req, res) => {
     return res.status(200).json({ message: "Logged out successfully" });
   });
 };
-
