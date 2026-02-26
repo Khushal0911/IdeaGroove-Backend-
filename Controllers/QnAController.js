@@ -15,8 +15,9 @@ export const getQnA = async (req, res) => {
     const queryParams = [];
 
     if (search) {
-      conditions.push("q.Question LIKE ?");
-      queryParams.push(`%${search}%`);
+      // Search across question text AND subject name
+      conditions.push("(q.Question LIKE ? OR s.Subject_Name LIKE ?)");
+      queryParams.push(`%${search}%`, `%${search}%`);
     }
 
     if (degreeId) {
@@ -37,9 +38,11 @@ export const getQnA = async (req, res) => {
         ? "ORDER BY q.Added_On ASC"
         : "ORDER BY q.Added_On DESC"; // default: newest first
 
+    // COUNT query needs the same JOIN on subject_tbl for the search condition to work
     const [countResult] = await db.query(
       `SELECT COUNT(DISTINCT q.Q_ID) as total 
-       FROM question_tbl q 
+       FROM question_tbl q
+       LEFT JOIN subject_tbl s ON q.Subject_ID = s.Subject_ID
        WHERE ${whereClause}`,
       queryParams,
     );
@@ -294,7 +297,6 @@ export const deleteQuestion = async (req, res) => {
   }
 };
 
-//CRUD for question
 export const addAnswer = async (req, res) => {
   const { Answer, Q_ID, Answered_By } = req.body;
   let connection;
