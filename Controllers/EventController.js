@@ -6,7 +6,7 @@ export const getEvents = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
     const search = req.query.search?.trim() || "";
-    const filter = req.query.filter || "all"; // "all" | "upcoming" | "past"
+    const filter = req.query.filter || "all";
 
     let conditions = ["e.Is_Active = 1"];
     const queryParams = [];
@@ -34,9 +34,11 @@ export const getEvents = async (req, res) => {
         .json({ success: true, data: [], total: 0, page, totalPages: 0 });
     }
 
+    // Added Interested and Not_Interested to the SELECT
     const query = `
       SELECT e.E_ID, e.Added_By, e.Poster_File, e.Description,
              e.Event_Date, e.Added_On, e.Is_Active,
+             e.Interested, e.Not_Interested,
              s.S_ID AS Organizer_ID, s.Name AS Organizer_Name
       FROM event_tbl e
       LEFT JOIN student_tbl s ON e.Added_By = s.S_ID
@@ -47,21 +49,18 @@ export const getEvents = async (req, res) => {
 
     const [events] = await db.query(query, [...queryParams, limit, offset]);
 
-    res
-      .status(200)
-      .json({
-        success: true,
-        data: events,
-        total,
-        page,
-        totalPages: Math.ceil(total / limit),
-      });
+    res.status(200).json({
+      success: true,
+      data: events,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch events" });
   }
 };
 
-//Getting events for the user loggedin
 export const getUserEvents = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -143,7 +142,7 @@ export const addEvent = async (req, res) => {
 };
 
 export const updateEvents = async (req, res) => {
-  const { id } = req.params; // E_ID from URL
+  const { id } = req.params;
   const { Description, Event_Date } = req.body;
   const Poster_File = req.file ? req.file.path : null;
 
@@ -193,45 +192,6 @@ export const updateEvents = async (req, res) => {
   }
 };
 
-export const updateEventEngagement = async (req, res) => {
-  const { E_ID, type } = req.body; // type should be 'interested' or 'not_interested'
-
-  if (!["interested", "not_interested"].includes(type)) {
-    return res
-      .status(400)
-      .json({ status: false, message: "Invalid engagement type" });
-  }
-
-  let connection;
-  try {
-    connection = await db.getConnection();
-    await connection.beginTransaction();
-
-    const column = type === "interested" ? "Interested" : "Not_Interested";
-
-    const engagementQuery = `UPDATE event_tbl SET ${column} = ${column} + 1 WHERE E_ID = ? AND Is_Active = 1`;
-
-    const [result] = await connection.query(engagementQuery, [E_ID]);
-
-    if (result.affectedRows > 0) {
-      await connection.commit();
-      res.status(200).json({
-        status: true,
-        message: `Successfully marked as ${type.replace("_", " ")}`,
-      });
-    } else {
-      await connection.rollback();
-      res.status(404).json({ status: false, message: "Event not found" });
-    }
-  } catch (err) {
-    if (connection) await connection.rollback();
-    console.error("Engagement Update Error:", err);
-    res.status(500).json({ error: "Failed to update engagement" });
-  } finally {
-    if (connection) connection.release();
-  }
-};
-
 export const deleteEvent = async (req, res) => {
   const { id } = req.params;
   let connection;
@@ -260,14 +220,11 @@ export const deleteEvent = async (req, res) => {
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Event Deletion Error", err);
-    return res.status(500).json({
-      error: "Failed to delete events",
-    });
+    return res.status(500).json({ error: "Failed to delete events" });
   } finally {
     if (connection) connection.release();
   }
 };
-
 
 export const updateEventReaction = async (req, res) => {
   const { E_ID, type, action } = req.body;
@@ -293,11 +250,10 @@ export const updateEventReaction = async (req, res) => {
       `UPDATE event_tbl 
        SET ${column} = GREATEST(${column} ${operator} 1, 0)
        WHERE E_ID = ?`,
-      [E_ID]
+      [E_ID],
     );
 
     res.json({ message: "Reaction updated" });
-
   } catch (err) {
     res.status(500).json({ error: "Server error" });
   }
