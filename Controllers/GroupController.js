@@ -12,7 +12,6 @@ export const getGroups = async (req, res) => {
     const queryParams = [];
 
     if (search) {
-      // Search by group name, description, OR hobby name
       conditions.push(
         "(r.Room_Name LIKE ? OR r.Description LIKE ? OR h.Hobby_Name LIKE ?)",
       );
@@ -25,16 +24,18 @@ export const getGroups = async (req, res) => {
         ? "ORDER BY r.Created_On ASC"
         : "ORDER BY r.Created_On DESC";
 
-    // Count query needs the hobbies join too since we filter on h.Hobby_Name
+    /* ---------- COUNT ---------- */
     const [countResult] = await db.query(
-      `SELECT COUNT(DISTINCT r.Room_ID) as total 
+      `SELECT COUNT(DISTINCT r.Room_ID) as total
        FROM chat_rooms_tbl r
        LEFT JOIN hobbies_tbl h ON r.Based_On = h.Hobby_ID
        WHERE ${whereClause}`,
       queryParams,
     );
+
     const total = countResult[0].total;
 
+    /* ---------- MAIN QUERY ---------- */
     const query = `
       SELECT 
         r.Room_ID,
@@ -44,17 +45,17 @@ export const getGroups = async (req, res) => {
         r.Created_By,
         r.Is_Active,
         r.Description,
-        h.Based_On,
+        r.Based_On,
         s.username AS Creator_Name,
         s.S_ID AS Creator_ID,
         h.Hobby_Name,
-        COUNT(DISTINCT m.Member_ID) AS Member_Count,
-        
+        COUNT(DISTINCT m.Student_ID) AS Member_Count,
+
         (
           SELECT COALESCE(
             JSON_ARRAYAGG(
               JSON_OBJECT(
-                'role', rm.role,
+                'role', rm.Role,
                 'username', s2.username,
                 'name', s2.name,
                 'Profile_Pic', s2.Profile_Pic,
@@ -69,16 +70,17 @@ export const getGroups = async (req, res) => {
         ) AS Members
 
       FROM chat_rooms_tbl r
-      LEFT JOIN student_tbl s             ON r.Created_By = s.S_ID
-      LEFT JOIN hobbies_tbl h             ON r.Based_On = h.Hobby_ID
-      LEFT JOIN chat_room_members_tbl m   ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
-      
+      LEFT JOIN student_tbl s ON r.Created_By = s.S_ID
+      LEFT JOIN hobbies_tbl h ON r.Based_On = h.Hobby_ID
+      LEFT JOIN chat_room_members_tbl m 
+        ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+
       WHERE ${whereClause}
-      
+
       GROUP BY 
         r.Room_ID, r.Room_Name, r.Room_Type, r.Created_On, r.Created_By,
         r.Is_Active, r.Description, r.Based_On, s.username, s.S_ID, h.Hobby_Name
-        
+
       ${orderClause}
       LIMIT ? OFFSET ?
     `;
@@ -205,12 +207,10 @@ export const addGroup = async (req, res) => {
           .json({ status: true, message: "Group Created Successfully" });
       } else {
         await connection.rollback();
-        res
-          .status(400)
-          .json({
-            status: false,
-            message: "Group Created but error in admin entry",
-          });
+        res.status(400).json({
+          status: false,
+          message: "Group Created but error in admin entry",
+        });
       }
     } else {
       await connection.rollback();
