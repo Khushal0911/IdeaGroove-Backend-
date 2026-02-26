@@ -13,7 +13,7 @@ const storage = new CloudinaryStorage({
   params: async (req, file) => {
     return {
       folder: "notes",
-      resource_type: "auto", // ← THIS FIXES THUMBNAIL
+      resource_type: "auto",
       type: "upload",
       access_mode: "public",
       allowed_formats: ["jpg", "png", "jpeg", "pdf"],
