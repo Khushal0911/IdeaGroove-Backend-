@@ -8,7 +8,7 @@ export const getGroups = async (req, res) => {
     const limit = parseInt(req.query.limit) || 9;
     const offset = (page - 1) * limit;
     const search = req.query.search?.trim() || "";
-    const filter = req.query.filter || "all"; // "all" | "newest_to_oldest" | "oldest_to_newest"
+    const filter = req.query.filter || "all";
 
     let conditions = ["r.Is_Active = 1", "r.Room_Type = 'group'"];
     const queryParams = [];
@@ -22,16 +22,18 @@ export const getGroups = async (req, res) => {
     const orderClause =
       filter === "oldest_to_newest"
         ? "ORDER BY r.Created_On ASC"
-        : "ORDER BY r.Created_On DESC"; // default: newest first
+        : "ORDER BY r.Created_On DESC";
 
+    // 1. Get total count for pagination
     const [countResult] = await db.query(
       `SELECT COUNT(DISTINCT r.Room_ID) as total 
        FROM chat_rooms_tbl r
        WHERE ${whereClause}`,
-      queryParams,
+      queryParams
     );
     const total = countResult[0].total;
 
+    // 2. Main Query with Nested Members JSON
     const query = `
       SELECT 
         r.Room_ID,
@@ -45,25 +47,52 @@ export const getGroups = async (req, res) => {
         s.username AS Creator_Name,
         s.S_ID AS Creator_ID,
         h.Hobby_Name,
-        COUNT(m.Member_ID) AS Member_Count
+        COUNT(DISTINCT m.Member_ID) AS Member_Count,
+        
+        -- Nested Members Array
+        (
+          SELECT COALESCE(
+            JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'role', rm.role,
+                'username', s2.username,
+                'name', s2.name,
+                'Profile_Pic', s2.Profile_Pic,
+                'Student_ID', s2.S_ID
+              )
+            ),
+            JSON_ARRAY()
+          )
+          FROM chat_room_members_tbl rm
+          LEFT JOIN student_tbl s2 ON rm.Student_ID = s2.S_ID
+          WHERE rm.Room_ID = r.Room_ID AND rm.Is_Active = 1
+        ) AS Members
+
       FROM chat_rooms_tbl r
       LEFT JOIN student_tbl s       ON r.Created_By = s.S_ID
       LEFT JOIN hobbies_tbl h       ON r.Based_On = h.Hobby_ID
-      LEFT JOIN chat_room_members_tbl m 
-                                    ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+      LEFT JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+      
       WHERE ${whereClause}
+      
       GROUP BY 
         r.Room_ID, r.Room_Name, r.Room_Type, r.Created_On, r.Created_By,
         r.Is_Active, r.Description, r.Based_On, s.username, s.S_ID, h.Hobby_Name
+        
       ${orderClause}
       LIMIT ? OFFSET ?
     `;
 
     const [rooms] = await db.query(query, [...queryParams, limit, offset]);
 
+    const formattedRooms = rooms.map(room => ({
+      ...room,
+      Members: typeof room.Members === 'string' ? JSON.parse(room.Members) : room.Members
+    }));
+
     res.status(200).json({
       status: true,
-      data: rooms,
+      data: formattedRooms,
       pagination: {
         total,
         page,
