@@ -93,3 +93,35 @@ export const getDashboardStats = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch dashboard stats" });
   }
 };
+
+
+export const updateComplaintStatus = async (req, res) => {
+  const {id,status} = req.body;
+
+  try {
+    const [result] = await db.query(
+      `
+      UPDATE complaint_tbl
+      SET status = ?
+      WHERE Complaint_ID = ?
+      `,
+      [status,id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        error: "Complaint not found",
+      });
+    }
+
+    res.json({
+      message: "Complaint status updated successfully",
+    });
+
+  } catch (err) {
+    console.error("Complaint Status Updation Error:", err);
+    res.status(500).json({
+      error: "Internal Server Error",
+    });
+  }
+};

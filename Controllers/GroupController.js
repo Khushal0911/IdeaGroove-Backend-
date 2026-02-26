@@ -44,7 +44,7 @@ export const getGroups = async (req, res) => {
         r.Created_By,
         r.Is_Active,
         r.Description,
-        r.Based_On,
+        h.Based_On,
         s.username AS Creator_Name,
         s.S_ID AS Creator_ID,
         h.Hobby_Name,
