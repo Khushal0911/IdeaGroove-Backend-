@@ -17,6 +17,7 @@ import qnaRouter from "./routes/QnARoutes.js";
 import degreeSubjectRouter from "./routes/DegreeSubjectRoutes.js";
 import groupRouter from "./routes/GroupRoutes.js";
 import hobbyRouter from "./Routes/HobbyRoutes.js";
+import complaintRouter from "./routes/ComplaintRoutes.js";
 
 const app = express();
 axios.defaults.withCredentials = true;
@@ -69,6 +70,7 @@ app.use("/api/qna", qnaRouter);
 app.use("/api/degreeSubject", degreeSubjectRouter);
 app.use("/api/groups", groupRouter);
 app.use("/api/hobbies", hobbyRouter);
+app.use("/api/complaints",complaintRouter);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
