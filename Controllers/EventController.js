@@ -267,3 +267,38 @@ export const deleteEvent = async (req, res) => {
     if (connection) connection.release();
   }
 };
+
+
+export const updateEventReaction = async (req, res) => {
+  const { E_ID, type, action } = req.body;
+
+  if (!E_ID || !type || !action) {
+    return res.status(400).json({ error: "Missing data" });
+  }
+
+  try {
+    let column;
+
+    if (type === "interested") {
+      column = "Interested";
+    } else if (type === "not_interested") {
+      column = "Not_Interested";
+    } else {
+      return res.status(400).json({ error: "Invalid type" });
+    }
+
+    const operator = action === "add" ? "+" : "-";
+
+    await db.query(
+      `UPDATE event_tbl 
+       SET ${column} = GREATEST(${column} ${operator} 1, 0)
+       WHERE E_ID = ?`,
+      [E_ID]
+    );
+
+    res.json({ message: "Reaction updated" });
+
+  } catch (err) {
+    res.status(500).json({ error: "Server error" });
+  }
+};
