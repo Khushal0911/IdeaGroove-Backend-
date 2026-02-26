@@ -10,7 +10,7 @@ import {
   getStudentActivities,
   searchStudents,
   updateStudent,
-} from "../Controllers/StudentController.js";
+} from "../controllers/StudentController.js";
 
 const studentRouter = express.Router();
 
