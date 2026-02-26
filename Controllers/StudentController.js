@@ -348,8 +348,10 @@ export const getStudentActivities = async (req, res) => {
 
       case "QnA":
         query = `
-          SELECT Q_ID as id, Question as title, Added_On as date
-          FROM question_tbl
+          SELECT q.Q_ID as id, q.Question as title, q.Added_On as date, d.Degree_Name as course, s.Subject_Name as type 
+          FROM question_tbl q
+          LEFT JOIN degree_tbl d ON d.Degree_ID = q.Degree_ID
+          LEFT JOIN subject_tbl s ON s.Subject_ID = q.Subject_ID
           WHERE Added_By = ? AND Is_Active = 1
           ORDER BY Added_On DESC
         `;
