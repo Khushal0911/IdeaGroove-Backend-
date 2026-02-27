@@ -74,7 +74,10 @@ export const getDashboardStats = async (req, res) => {
     );
 
     const [events] = await db.query(
-      "SELECT COUNT(*) AS total FROM event_tbl WHERE Event_Date >= CURDATE()",
+      `SELECT COUNT(*) AS total 
+FROM event_tbl 
+WHERE Event_Date >= CURDATE()
+AND Is_Active = 1`,
     );
 
     const [complaints] = await db.query(
@@ -170,6 +173,97 @@ export const getTopContributor = async (req, res) => {
     res.json(topContributors);
   } catch (err) {
     console.err("Fetching Contributor Error : ", err);
+    res.status(500).json({
+      error: "Internal Server Error",
+    });
+  }
+};
+
+export const getRecentActivity = async (req, res) => {
+  try {
+    const [recentActivity] = await db.query(`
+  SELECT *
+  FROM (
+    -- EVENTS
+    SELECT 
+      e.E_ID AS activity_id,
+      e.Added_By AS student_id,
+      s.Name AS student_name,
+      s.Profile_Pic AS profile_pic,
+      'EVENT' AS activity_type,
+      e.Description AS title_or_action,
+      e.Added_On AS created_at,
+      e.Is_Active AS status
+    FROM event_tbl e
+    JOIN student_tbl s ON s.S_ID = e.Added_By
+
+    UNION ALL
+
+    -- GROUPS
+    SELECT 
+      g.Room_ID AS activity_id,
+      g.Created_By AS student_id,
+      s.Name AS student_name,
+      s.Profile_Pic AS profile_pic,
+      'GROUP' AS activity_type,
+      g.Room_Name AS title_or_action,
+      g.Created_On AS created_at,
+      g.Is_Active AS status
+    FROM chat_rooms_tbl g
+    JOIN student_tbl s ON s.S_ID = g.Created_By
+
+    UNION ALL
+
+    -- NOTES
+    SELECT 
+      n.N_ID AS activity_id,
+      n.Added_By AS student_id,
+      s.Name AS student_name,
+      s.Profile_Pic AS profile_pic,
+      'NOTE' AS activity_type,
+      n.File_Name AS title_or_action,
+      n.Added_On AS created_at,
+      n.Is_Active AS status
+    FROM notes_tbl n
+    JOIN student_tbl s ON s.S_ID = n.Added_By
+
+    UNION ALL
+
+    -- QUESTIONS
+    SELECT 
+      q.Q_ID AS activity_id,
+      q.Added_By AS student_id,
+      s.Name AS student_name,
+      s.Profile_Pic AS profile_pic,
+      'QUESTION' AS activity_type,
+      q.Question AS title_or_action,
+      q.Added_On AS created_at,
+      q.Is_Active AS status
+    FROM question_tbl q
+    JOIN student_tbl s ON s.S_ID = q.Added_By
+
+    UNION ALL
+
+    -- COMPLAINTS
+    SELECT 
+      c.Complaint_ID AS activity_id,
+      c.Student_ID AS student_id,
+      s.Name AS student_name,
+      s.Profile_Pic AS profile_pic,
+      'COMPLAINT' AS activity_type,
+      c.Complaint_Text AS title_or_action,
+      c.Date AS created_at,
+      c.Is_Active AS status
+    FROM complaint_tbl c
+    JOIN student_tbl s ON s.S_ID = c.Student_ID
+
+  ) AS combined_activity
+  ORDER BY created_at DESC
+  LIMIT 10
+`);
+    res.json(recentActivity);
+  } catch (err) {
+    console.error("Unable to fetch the recent activity: ", err);
     res.status(500).json({
       error: "Internal Server Error",
     });
