@@ -94,9 +94,8 @@ export const getDashboardStats = async (req, res) => {
   }
 };
 
-
 export const updateComplaintStatus = async (req, res) => {
-  const {id,status} = req.body;
+  const { id, status } = req.body;
 
   try {
     const [result] = await db.query(
@@ -105,7 +104,7 @@ export const updateComplaintStatus = async (req, res) => {
       SET status = ?
       WHERE Complaint_ID = ?
       `,
-      [status,id]
+      [status, id],
     );
 
     if (result.affectedRows === 0) {
@@ -117,9 +116,60 @@ export const updateComplaintStatus = async (req, res) => {
     res.json({
       message: "Complaint status updated successfully",
     });
-
   } catch (err) {
     console.error("Complaint Status Updation Error:", err);
+    res.status(500).json({
+      error: "Internal Server Error",
+    });
+  }
+};
+
+export const getTopContributor = async (req, res) => {
+  try {
+    const [topContributors] = await db.query(`
+  SELECT 
+    s.S_ID,
+    s.Name,
+    s.Profile_Pic,
+    d.Degree_Name,
+    SUM(t.total) + 0 AS grand_total
+  FROM (
+    SELECT Added_By AS student_id, COUNT(*) AS total
+    FROM event_tbl
+    WHERE Is_Active = 1
+    GROUP BY Added_By
+
+    UNION ALL
+
+    SELECT Created_By AS student_id, COUNT(*) AS total
+    FROM chat_rooms_tbl
+    WHERE Is_Active = 1
+    GROUP BY Created_By
+
+    UNION ALL
+
+    SELECT Added_By AS student_id, COUNT(*) AS total
+    FROM notes_tbl
+    WHERE Is_Active = 1
+    GROUP BY Added_By
+
+    UNION ALL
+
+    SELECT Added_By AS student_id, COUNT(*) AS total
+    FROM question_tbl
+    WHERE Is_Active = 1
+    GROUP BY Added_By
+  ) t
+  JOIN student_tbl s ON s.S_ID = t.student_id
+  LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
+  GROUP BY s.S_ID, s.Name, d.Degree_Name
+  ORDER BY grand_total DESC
+  LIMIT 3
+`);
+
+    res.json(topContributors);
+  } catch (err) {
+    console.err("Fetching Contributor Error : ", err);
     res.status(500).json({
       error: "Internal Server Error",
     });

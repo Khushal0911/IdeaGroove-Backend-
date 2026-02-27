@@ -10,7 +10,8 @@ import {
   getStudentActivities,
   searchStudents,
   updateStudent,
-} from "../controllers/StudentController.js";
+} from "../Controllers/StudentController.js";
+import { upload } from "../config/cloud.js";
 
 const studentRouter = express.Router();
 
@@ -18,7 +19,7 @@ studentRouter.get("/profile/:id", getPublicProfile);
 studentRouter.get("/search", searchStudents);
 studentRouter.get("/all", getAllStudents);
 studentRouter.get("/:id/activities", getStudentActivities);
-studentRouter.post("/update", updateStudent);
+studentRouter.post("/update", upload.single("profile_pic"), updateStudent);
 studentRouter.delete("/:id", deleteStudent);
 studentRouter.get("/me/:id", getCurrentStudent);
 

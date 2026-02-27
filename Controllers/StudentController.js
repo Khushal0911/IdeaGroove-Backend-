@@ -6,7 +6,7 @@
 
 //   try {
 //     let query = `
-//       SELECT 
+//       SELECT
 //         s.S_ID, s.Name, s.Username, s.Profile_Pic, s.Roll_No, s.Year,
 //         d.Degree_Name
 //       FROM student_tbl s
@@ -51,7 +51,6 @@
 //   }
 // };
 
-
 // export const getColleges = async (req, res) => {
 //   try {
 //     const [rows] = await db.query("SELECT College_ID, College_Name FROM college_tbl ORDER BY College_Name ASC");
@@ -87,7 +86,7 @@
 //   try {
 //     const [rows] = await db.query(
 //       `
-//       SELECT 
+//       SELECT
 //         s.S_ID,
 //         s.Name,
 //         s.Username,
@@ -106,16 +105,16 @@
 
 //       FROM student_tbl s
 
-//       LEFT JOIN college_tbl c 
+//       LEFT JOIN college_tbl c
 //         ON s.College_ID = c.College_ID
 
-//       LEFT JOIN degree_tbl d 
+//       LEFT JOIN degree_tbl d
 //         ON s.Degree_ID = d.Degree_ID
 
-//       LEFT JOIN student_hobby_mapping_tbl shm 
+//       LEFT JOIN student_hobby_mapping_tbl shm
 //         ON s.S_ID = shm.Student_ID
 
-//       LEFT JOIN hobbies_tbl h 
+//       LEFT JOIN hobbies_tbl h
 //         ON shm.Hobby_ID = h.Hobby_ID
 
 //       WHERE s.S_ID = ?
@@ -159,7 +158,6 @@
 //     res.status(500).json({ error: "Server error" });
 //   }
 // };
-
 
 // export const updateStudent = async (req, res) => {
 //   const {
@@ -232,8 +230,8 @@
 //     connection = await db.getConnection();
 //     await connection.beginTransaction();
 
-//     const deleteStudentQuery = `UPDATE student_tbl 
-//         SET is_Active = 0 
+//     const deleteStudentQuery = `UPDATE student_tbl
+//         SET is_Active = 0
 //         WHERE S_ID = ?`;
 
 //     const [result] = await connection.query(deleteStudentQuery, [id]);
@@ -262,10 +260,7 @@
 //   }
 // };
 
-
 import db from "../config/db.js";
-
-
 
 export const getPublicProfile = async (req, res) => {
   const { id } = req.params;
@@ -353,8 +348,10 @@ export const getStudentActivities = async (req, res) => {
 
       case "QnA":
         query = `
-          SELECT Q_ID as id, Question as title, Added_On as date
-          FROM question_tbl
+          SELECT q.Q_ID as id, q.Question as title, q.Added_On as date, d.Degree_Name as course, s.Subject_Name as type 
+          FROM question_tbl q
+          LEFT JOIN degree_tbl d ON d.Degree_ID = q.Degree_ID
+          LEFT JOIN subject_tbl s ON s.Subject_ID = q.Subject_ID
           WHERE Added_By = ? AND Is_Active = 1
           ORDER BY Added_On DESC
         `;
@@ -499,11 +496,12 @@ export const getAllStudents = async (req, res) => {
    (Used for Searchable Dropdowns)
 ================================= */
 
-
 // Fetch all colleges for the searchable datalist
 export const getColleges = async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT College_ID, College_Name FROM college_tbl ORDER BY College_Name ASC");
+    const [rows] = await db.query(
+      "SELECT College_ID, College_Name FROM college_tbl ORDER BY College_Name ASC",
+    );
     res.status(200).json(rows);
   } catch (err) {
     console.error("Fetch Colleges Error:", err);
@@ -514,7 +512,9 @@ export const getColleges = async (req, res) => {
 // Fetch all degrees for the searchable datalist
 export const getDegrees = async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT Degree_ID, Degree_Name FROM degree_tbl ORDER BY Degree_Name ASC");
+    const [rows] = await db.query(
+      "SELECT Degree_ID, Degree_Name FROM degree_tbl ORDER BY Degree_Name ASC",
+    );
     res.status(200).json(rows);
   } catch (err) {
     console.error("Fetch Degrees Error:", err);
@@ -525,7 +525,9 @@ export const getDegrees = async (req, res) => {
 // Fetch all hobbies for the searchable chip-selection
 export const getHobbies = async (req, res) => {
   try {
-    const [rows] = await db.query("SELECT Hobby_ID, Hobby_Name FROM hobbies_tbl ORDER BY Hobby_Name ASC");
+    const [rows] = await db.query(
+      "SELECT Hobby_ID, Hobby_Name FROM hobbies_tbl ORDER BY Hobby_Name ASC",
+    );
     res.status(200).json(rows);
   } catch (err) {
     console.error("Fetch Hobbies Error:", err);
@@ -554,7 +556,7 @@ export const getCurrentStudent = async (req, res) => {
       LEFT JOIN hobbies_tbl h ON shm.Hobby_ID = h.Hobby_ID
       WHERE s.S_ID = ?
       `,
-      [studentId]
+      [studentId],
     );
 
     if (rows.length === 0) {
@@ -574,15 +576,15 @@ export const getCurrentStudent = async (req, res) => {
       Degree_ID: rows[0].Degree_ID,
       College_Name: rows[0].College_Name,
       Degree_Name: rows[0].Degree_Name,
-      hobbies: []
+      hobbies: [],
     };
 
     // Group hobbies into an array
-    rows.forEach(row => {
+    rows.forEach((row) => {
       if (row.Hobby_ID) {
         student.hobbies.push({
           Hobby_ID: row.Hobby_ID,
-          Hobby_Name: row.Hobby_Name
+          Hobby_Name: row.Hobby_Name,
         });
       }
     });
@@ -597,18 +599,32 @@ export const getCurrentStudent = async (req, res) => {
 // IdeaGroove-Backend -> controllers -> StudentController.js
 
 export const updateStudent = async (req, res) => {
+  const {
+    student_id,
+    username,
+    name,
+    roll_no,
+    college_id,
+    degree_id,
+    year,
+    email,
+    hobbies,
+  } = req.body;
 
-  const { student_id, username, name, roll_no, college_id, degree_id, year, email, profile_pic, hobbies } = req.body;
+  const profile_pic = req.file ? req.file.path : undefined;
 
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-
     // 1. Fetch current data to use as fallback for any undefined fields
-    const [current] = await connection.query("SELECT * FROM student_tbl WHERE S_ID = ?", [student_id]);
-    if (current.length === 0) return res.status(404).json({ error: "Student not found" });
+    const [current] = await connection.query(
+      "SELECT * FROM student_tbl WHERE S_ID = ?",
+      [student_id],
+    );
+    if (current.length === 0)
+      return res.status(404).json({ error: "Student not found" });
     const old = current[0];
 
     // 2. Prepare parameters: Use new value if provided, otherwise keep the old one
@@ -622,7 +638,7 @@ export const updateStudent = async (req, res) => {
       year !== undefined ? year : old.Year,
       email !== undefined ? email : old.Email,
       profile_pic !== undefined ? profile_pic : old.Profile_Pic,
-      student_id
+      student_id,
     ];
 
     const updateQuery = `
@@ -632,13 +648,18 @@ export const updateStudent = async (req, res) => {
 
     await connection.execute(updateQuery, params);
 
-
     // 3. Sync Hobbies
     if (hobbies && Array.isArray(hobbies)) {
-      await connection.query("DELETE FROM student_hobby_mapping_tbl WHERE Student_ID = ?", [student_id]);
+      await connection.query(
+        "DELETE FROM student_hobby_mapping_tbl WHERE Student_ID = ?",
+        [student_id],
+      );
       if (hobbies.length > 0) {
-        const hobbyValues = hobbies.map(id => [student_id, id]);
-        await connection.query("INSERT INTO student_hobby_mapping_tbl (Student_ID, Hobby_ID) VALUES ?", [hobbyValues]);
+        const hobbyValues = hobbies.map((id) => [student_id, id]);
+        await connection.query(
+          "INSERT INTO student_hobby_mapping_tbl (Student_ID, Hobby_ID) VALUES ?",
+          [hobbyValues],
+        );
       }
     }
 
@@ -682,7 +703,10 @@ export const searchStudents = async (req, res) => {
       params.push(`%${department}%`);
     }
 
-    const [countRows] = await db.query(`SELECT COUNT(*) as total FROM (${query}) as subquery`, params);
+    const [countRows] = await db.query(
+      `SELECT COUNT(*) as total FROM (${query}) as subquery`,
+      params,
+    );
     const total = countRows[0].total;
 
     query += ` ORDER BY s.Name ASC LIMIT ? OFFSET ?`;
@@ -717,7 +741,9 @@ export const deleteStudent = async (req, res) => {
 
     if (result.affectedRows > 0) {
       await connection.commit();
-      res.status(200).json({ status: true, message: "Student Deleted Successfully" });
+      res
+        .status(200)
+        .json({ status: true, message: "Student Deleted Successfully" });
     } else {
       await connection.rollback();
       res.status(404).json({ status: false, message: "Student not found" });
@@ -730,5 +756,3 @@ export const deleteStudent = async (req, res) => {
     if (connection) connection.release();
   }
 };
-
-

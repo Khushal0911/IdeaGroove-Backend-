@@ -1,7 +1,5 @@
 import db from "../config/db.js";
 
-// Replace your existing getGroups function in GroupController.js with this:
-
 export const getGroups = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -14,8 +12,10 @@ export const getGroups = async (req, res) => {
     const queryParams = [];
 
     if (search) {
-      conditions.push("(r.Room_Name LIKE ? OR r.Description LIKE ?)");
-      queryParams.push(`%${search}%`, `%${search}%`);
+      conditions.push(
+        "(r.Room_Name LIKE ? OR r.Description LIKE ? OR h.Hobby_Name LIKE ?)",
+      );
+      queryParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     const whereClause = conditions.join(" AND ");
@@ -24,16 +24,18 @@ export const getGroups = async (req, res) => {
         ? "ORDER BY r.Created_On ASC"
         : "ORDER BY r.Created_On DESC";
 
-    // 1. Get total count for pagination
+    /* ---------- COUNT ---------- */
     const [countResult] = await db.query(
-      `SELECT COUNT(DISTINCT r.Room_ID) as total 
+      `SELECT COUNT(DISTINCT r.Room_ID) as total
        FROM chat_rooms_tbl r
+       LEFT JOIN hobbies_tbl h ON r.Based_On = h.Hobby_ID
        WHERE ${whereClause}`,
-      queryParams
+      queryParams,
     );
+
     const total = countResult[0].total;
 
-    // 2. Main Query with Nested Members JSON
+    /* ---------- MAIN QUERY ---------- */
     const query = `
       SELECT 
         r.Room_ID,
@@ -43,18 +45,17 @@ export const getGroups = async (req, res) => {
         r.Created_By,
         r.Is_Active,
         r.Description,
-        h.Based_On,
+        r.Based_On,
         s.username AS Creator_Name,
         s.S_ID AS Creator_ID,
         h.Hobby_Name,
-        COUNT(DISTINCT m.Member_ID) AS Member_Count,
-        
-        -- Nested Members Array
+        COUNT(DISTINCT m.Student_ID) AS Member_Count,
+
         (
           SELECT COALESCE(
             JSON_ARRAYAGG(
               JSON_OBJECT(
-                'role', rm.role,
+                'role', rm.Role,
                 'username', s2.username,
                 'name', s2.name,
                 'Profile_Pic', s2.Profile_Pic,
@@ -69,25 +70,29 @@ export const getGroups = async (req, res) => {
         ) AS Members
 
       FROM chat_rooms_tbl r
-      LEFT JOIN student_tbl s       ON r.Created_By = s.S_ID
-      LEFT JOIN hobbies_tbl h       ON r.Based_On = h.Hobby_ID
-      LEFT JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
-      
+      LEFT JOIN student_tbl s ON r.Created_By = s.S_ID
+      LEFT JOIN hobbies_tbl h ON r.Based_On = h.Hobby_ID
+      LEFT JOIN chat_room_members_tbl m 
+        ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+
       WHERE ${whereClause}
-      
+
       GROUP BY 
         r.Room_ID, r.Room_Name, r.Room_Type, r.Created_On, r.Created_By,
         r.Is_Active, r.Description, r.Based_On, s.username, s.S_ID, h.Hobby_Name
-        
+
       ${orderClause}
       LIMIT ? OFFSET ?
     `;
 
     const [rooms] = await db.query(query, [...queryParams, limit, offset]);
 
-    const formattedRooms = rooms.map(room => ({
+    const formattedRooms = rooms.map((room) => ({
       ...room,
-      Members: typeof room.Members === 'string' ? JSON.parse(room.Members) : room.Members
+      Members:
+        typeof room.Members === "string"
+          ? JSON.parse(room.Members)
+          : room.Members,
     }));
 
     res.status(200).json({
@@ -113,29 +118,29 @@ export const getUserGroups = async (req, res) => {
     const offset = (page - 1) * limit;
 
     const countQuery = `
-            SELECT COUNT(*) as total 
-            FROM chat_room_members_tbl 
-            WHERE Student_ID = ? AND Is_Active = 1`;
+      SELECT COUNT(*) as total 
+      FROM chat_room_members_tbl 
+      WHERE Student_ID = ? AND Is_Active = 1`;
 
     const [countResult] = await db.query(countQuery, [userId]);
     const total = countResult[0].total;
 
     const query = `
-            SELECT 
-                r.Room_ID, 
-                r.Room_Name, 
-                r.Based_On, 
-                r.Description, 
-                m.Role, 
-                m.Joined_on
-            FROM chat_rooms_tbl r
-            INNER JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID
-            WHERE m.Student_ID = ? 
-              AND m.Is_Active = 1 
-              AND r.Is_Active = 1
-            ORDER BY m.Joined_on DESC
-            LIMIT ? OFFSET ?
-        `;
+      SELECT 
+        r.Room_ID, 
+        r.Room_Name, 
+        r.Based_On, 
+        r.Description, 
+        m.Role, 
+        m.Joined_on
+      FROM chat_rooms_tbl r
+      INNER JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID
+      WHERE m.Student_ID = ? 
+        AND m.Is_Active = 1 
+        AND r.Is_Active = 1
+      ORDER BY m.Joined_on DESC
+      LIMIT ? OFFSET ?
+    `;
 
     const [myGroups] = await db.query(query, [userId, limit, offset]);
 
@@ -173,8 +178,8 @@ export const addGroup = async (req, res) => {
     await connection.beginTransaction();
 
     const addGroupQuery = `INSERT INTO chat_rooms_tbl
-        (Room_Type,Room_Name,Based_On,Created_By,Created_On,Is_Active,Description) VALUES
-        ('Group',?,?,?,NOW(),1,?)`;
+      (Room_Type, Room_Name, Based_On, Created_By, Created_On, Is_Active, Description) 
+      VALUES ('Group', ?, ?, ?, NOW(), 1, ?)`;
 
     const [addResult] = await connection.query(addGroupQuery, [
       Room_Name,
@@ -187,8 +192,8 @@ export const addGroup = async (req, res) => {
       const newRoomId = addResult.insertId;
 
       const addAdminQuery = `INSERT INTO chat_room_members_tbl 
-            (Room_ID, Student_ID, Role, Joined_on, Is_Active)
-            VALUES (?, ?, 'admin', NOW(), 1)`;
+        (Room_ID, Student_ID, Role, Joined_on, Is_Active)
+        VALUES (?, ?, 'admin', NOW(), 1)`;
 
       const [adminResult] = await connection.query(addAdminQuery, [
         newRoomId,
@@ -197,28 +202,26 @@ export const addGroup = async (req, res) => {
 
       if (adminResult.affectedRows > 0) {
         await connection.commit();
-        res.status(201).json({
-          status: true,
-          message: "Group Created Successfully",
-        });
+        res
+          .status(201)
+          .json({ status: true, message: "Group Created Successfully" });
       } else {
         await connection.rollback();
         res.status(400).json({
-          status: true,
+          status: false,
           message: "Group Created but error in admin entry",
         });
       }
     } else {
       await connection.rollback();
-      res.status(400).json({
-        status: true,
-        message: "Group Created unsuccessfully",
-      });
+      res
+        .status(400)
+        .json({ status: false, message: "Group Created unsuccessfully" });
     }
   } catch (err) {
     if (connection) connection.rollback();
-    console.error("Group creatoin error : ", err);
-    return res.status(500).json({ error: "Failed to create event." });
+    console.error("Group creation error:", err);
+    return res.status(500).json({ error: "Failed to create group." });
   } finally {
     if (connection) connection.release();
   }
@@ -231,9 +234,9 @@ export const updateGroup = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const updateGroupQuery = `UPDATE chat_rooms_Tbl
-        SET Room_Name = ?, Based_On = ?, Description=?
-        WHERE Room_ID = ?`;
+    const updateGroupQuery = `UPDATE chat_rooms_tbl
+      SET Room_Name = ?, Based_On = ?, Description = ?
+      WHERE Room_ID = ?`;
 
     const [updateResult] = await connection.query(updateGroupQuery, [
       Room_Name,
@@ -244,23 +247,19 @@ export const updateGroup = async (req, res) => {
 
     if (updateResult.affectedRows > 0) {
       await connection.commit();
-      res.status(201).json({
-        status: true,
-        message: "Group Updated successfully",
-      });
+      res
+        .status(201)
+        .json({ status: true, message: "Group Updated successfully" });
     } else {
       await connection.rollback();
-      res.status(400).json({
-        status: false,
-        message: "Group Updation unsuccessfull",
-      });
+      res
+        .status(400)
+        .json({ status: false, message: "Group Updation unsuccessful" });
     }
   } catch (err) {
-    if (connection) await connection.release();
+    if (connection) await connection.rollback();
     console.error("Unable to update the group");
-    res.status(500).json({
-      error: "Failed to update group",
-    });
+    res.status(500).json({ error: "Failed to update group" });
   } finally {
     if (connection) connection.release();
   }
@@ -274,30 +273,26 @@ export const deleteGroup = async (req, res) => {
     await connection.beginTransaction();
 
     const deleteGroupQuery = `UPDATE chat_rooms_tbl
-        SET Is_Active = 0, Deleted_On = NOW()
-        WHERE Room_ID = ?`;
+      SET Is_Active = 0, Deleted_On = NOW()
+      WHERE Room_ID = ?`;
 
     const [deleteResult] = await connection.query(deleteGroupQuery, [Room_ID]);
 
     if (deleteResult.affectedRows > 0) {
       await connection.commit();
-      res.status(201).json({
-        status: true,
-        message: "Group Deleted Successfully",
-      });
+      res
+        .status(201)
+        .json({ status: true, message: "Group Deleted Successfully" });
     } else {
       await connection.rollback();
-      res.status(400).json({
-        status: false,
-        message: "Group Deletion Unsuccessful",
-      });
+      res
+        .status(400)
+        .json({ status: false, message: "Group Deletion Unsuccessful" });
     }
   } catch (err) {
     if (connection) await connection.rollback();
     console.error("Unable to delete group");
-    res.status(500).json({
-      error: "Failed to delete group",
-    });
+    res.status(500).json({ error: "Failed to delete group" });
   } finally {
     if (connection) connection.release();
   }
@@ -311,8 +306,7 @@ export const joinGroup = async (req, res) => {
     await connection.beginTransaction();
 
     const [existing] = await connection.query(
-      `SELECT * FROM chat_room_members_tbl
-            WHERE Room_ID = ? AND Student_ID = ?`,
+      `SELECT * FROM chat_room_members_tbl WHERE Room_ID = ? AND Student_ID = ?`,
       [Room_ID, Student_ID],
     );
 
@@ -342,11 +336,7 @@ export const joinGroup = async (req, res) => {
       res.status(201).json({ status: true, message: finalStatus });
     } else {
       await connection.rollback();
-      (res.status(400),
-        json({
-          status: true,
-          message: "error in joining group",
-        }));
+      res.status(400).json({ status: true, message: "Error in joining group" });
     }
   } catch (err) {
     if (connection) await connection.rollback();
@@ -364,8 +354,7 @@ export const leaveGroup = async (req, res) => {
     await connection.beginTransaction();
 
     const [memberInfo] = await connection.query(
-      `SELECT Role, Is_Active FROM chat_room_members_tbl 
-             WHERE Student_ID = ? AND Room_ID = ?`,
+      `SELECT Role, Is_Active FROM chat_room_members_tbl WHERE Student_ID = ? AND Room_ID = ?`,
       [Student_ID, Room_ID],
     );
 
@@ -382,38 +371,27 @@ export const leaveGroup = async (req, res) => {
     if (userRole === "admin") {
       const [successors] = await connection.query(
         `SELECT Student_ID FROM chat_room_members_tbl 
-                 WHERE Room_ID = ? AND Is_Active = 1 AND Student_ID != ? 
-                 ORDER BY Joined_on ASC LIMIT 1`,
+         WHERE Room_ID = ? AND Is_Active = 1 AND Student_ID != ? 
+         ORDER BY Joined_on ASC LIMIT 1`,
         [Room_ID, Student_ID],
       );
 
-      //If successors.length is 0, it means the last person is leaving.
-
       if (successors.length > 0) {
         const nextAdminId = successors[0].Student_ID;
-
-        // Promote the successor to Admin
         await connection.query(
-          `UPDATE chat_room_members_tbl SET Role = 'admin' 
-                     WHERE Student_ID = ? AND Room_ID = ?`,
+          `UPDATE chat_room_members_tbl SET Role = 'admin' WHERE Student_ID = ? AND Room_ID = ?`,
           [nextAdminId, Room_ID],
         );
       } else {
-        // Last person leaving was admin: Soft delete the room
         await connection.query(
-          `UPDATE chat_rooms_tbl 
-                    SET Is_Active = 0, Deleted_On = NOW()
-                    WHERE Room_ID = ?`,
+          `UPDATE chat_rooms_tbl SET Is_Active = 0, Deleted_On = NOW() WHERE Room_ID = ?`,
           [Room_ID],
         );
       }
     }
 
-    //mark the current user as left
     const [leaveResult] = await connection.query(
-      `UPDATE chat_room_members_tbl 
-             SET Is_Active = 0, Left_On = NOW() 
-             WHERE Student_ID = ? AND Room_ID = ?`,
+      `UPDATE chat_room_members_tbl SET Is_Active = 0, Left_On = NOW() WHERE Student_ID = ? AND Room_ID = ?`,
       [Student_ID, Room_ID],
     );
 
@@ -442,21 +420,18 @@ export const leaveGroup = async (req, res) => {
 export const viewMembers = async (req, res) => {
   const { Room_ID } = req.params;
   try {
-    const membersQuery = `SELECT rm.role as role, s.username,s.name, s.Profile_Pic,r.Room_ID FROM chat_room_members_tbl rm
-        LEFT JOIN chat_rooms_tbl r ON r.Room_ID = rm.Room_ID
-        LEFT JOIN student_tbl s ON s.S_ID = rm.Student_ID
-        WHERE r.Room_ID = ?`;
+    const membersQuery = `
+      SELECT rm.role as role, s.username, s.name, s.Profile_Pic, r.Room_ID 
+      FROM chat_room_members_tbl rm
+      LEFT JOIN chat_rooms_tbl r ON r.Room_ID = rm.Room_ID
+      LEFT JOIN student_tbl s ON s.S_ID = rm.Student_ID
+      WHERE r.Room_ID = ?`;
 
     const [membersDetails] = await db.query(membersQuery, [Room_ID]);
 
-    res.status(201).json({
-      status: true,
-      membersDetails: membersDetails,
-    });
+    res.status(201).json({ status: true, membersDetails });
   } catch (err) {
     console.error("Unable to load members");
-    res.status(500).json({
-      error: "Unable to fetch members details",
-    });
+    res.status(500).json({ error: "Unable to fetch members details" });
   }
 };
