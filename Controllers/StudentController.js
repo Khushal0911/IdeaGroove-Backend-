@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 // import db from "../config/db.js";
 
 // export const searchStudents = async (req, res) => {
@@ -262,7 +260,6 @@
 //   }
 // };
 
->>>>>>> df2d7c351fa17a36fb1109e30746181693db5a58
 import db from "../config/db.js";
 
 export const getPublicProfile = async (req, res) => {

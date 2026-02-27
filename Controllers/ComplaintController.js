@@ -60,7 +60,7 @@ export const getUserComplaints = async (req, res) => {
   try {
     const { id } = req.params; // Student S_ID
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
 
     const [countResult] = await db.query(
@@ -70,10 +70,34 @@ export const getUserComplaints = async (req, res) => {
     const total = countResult[0].total;
 
     const query = `
-      SELECT * FROM complaint_tbl 
-      WHERE Student_ID = ? AND Is_Active = 1
-      ORDER BY Date DESC
-      LIMIT ? OFFSET ?
+      SELECT 
+    c.*,
+    -- Extracting the title/text of the reported content
+    COALESCE(q.Question, a.Answer, n.Description, cr.Room_Name, e.Description, s_reported.Username) AS Content_Title,
+    -- Extracting the Username of the person who created that content
+    COALESCE(sq.Username, sa.Username, sn.Username, scr.Username, se.Username, s_reported.Username) AS Content_Owner_Name
+FROM complaint_tbl c
+-- Joins to get Content Details and their respective Owners
+LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
+LEFT JOIN student_tbl sq ON q.Added_By = sq.S_ID
+
+LEFT JOIN answer_tbl a ON c.Type = 'answer' AND c.Content_ID = a.A_ID
+LEFT JOIN student_tbl sa ON a.Answered_By = sa.S_ID
+
+LEFT JOIN notes_tbl n ON c.Type = 'notes' AND c.Content_ID = n.N_ID
+LEFT JOIN student_tbl sn ON n.Added_By = sn.S_ID
+
+LEFT JOIN chat_rooms_tbl cr ON c.Type = 'groups' AND c.Content_ID = cr.Room_ID
+LEFT JOIN student_tbl scr ON cr.Created_By = scr.S_ID
+
+LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
+LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
+
+LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
+
+WHERE c.Student_ID = ? AND c.Is_Active = 1
+ORDER BY c.Date DESC
+LIMIT ? OFFSET ?
     `;
 
     const [complaints] = await db.query(query, [id, limit, offset]);

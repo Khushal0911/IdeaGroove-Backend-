@@ -10,12 +10,8 @@ import {
   getStudentActivities,
   searchStudents,
   updateStudent,
-<<<<<<< HEAD
-} from "../controllers/StudentController.js";
-=======
 } from "../Controllers/StudentController.js";
 import { upload } from "../config/cloud.js";
->>>>>>> df2d7c351fa17a36fb1109e30746181693db5a58
 
 const studentRouter = express.Router();
 
