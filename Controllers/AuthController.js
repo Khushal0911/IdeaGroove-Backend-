@@ -1,8 +1,7 @@
 import bcrypt from "bcryptjs";
 import db from "../config/db.js";
-import jwt from "jsonwebtoken"; 
+import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
-
 
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -71,6 +70,34 @@ export const forgotPassword = async (req, res) => {
   }
 };
 
+export const checkAvailability = async (req, res) => {
+  const { field, value } = req.query;
+
+  if (!field || !value) {
+    return res.status(400).json({ error: "field and value are required." });
+  }
+
+  const allowedFields = { username: "Username", email: "Email" };
+  const column = allowedFields[field.toLowerCase()];
+
+  if (!column) {
+    return res
+      .status(400)
+      .json({ error: "Invalid field. Use 'username' or 'email'." });
+  }
+
+  try {
+    const [rows] = await db.query(
+      `SELECT S_ID FROM student_tbl WHERE ${column} = ? LIMIT 1`,
+      [value.trim()],
+    );
+
+    return res.status(200).json({ available: rows.length === 0 });
+  } catch (err) {
+    console.error("checkAvailability error:", err);
+    return res.status(500).json({ error: "Server error." });
+  }
+};
 
 export const resetPassword = async (req, res) => {
   const { id, token } = req.params; // Get ID and Token from URL
@@ -363,7 +390,6 @@ export const userLogout = (req, res) => {
   });
 };
 
-
 export const changePassword = async (req, res) => {
   const { oldPassword, newPassword, S_ID } = req.body;
   let connection;
@@ -377,7 +403,7 @@ export const changePassword = async (req, res) => {
 
     const [rows] = await connection.query(
       "SELECT Password FROM student_tbl WHERE S_ID = ?",
-      [S_ID]
+      [S_ID],
     );
 
     if (rows.length === 0) {
@@ -386,7 +412,6 @@ export const changePassword = async (req, res) => {
 
     const user = rows[0];
 
-    
     const isMatch = await bcrypt.compare(oldPassword, user.Password);
     if (!isMatch) {
       return res.status(400).json({ message: "Incorrect current password." });
@@ -394,29 +419,29 @@ export const changePassword = async (req, res) => {
 
     const saltRounds = 10;
     const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
-    
+
     const [result] = await connection.query(
       "UPDATE student_tbl SET Password = ? WHERE S_ID = ?",
-      [hashedNewPassword, S_ID]
+      [hashedNewPassword, S_ID],
     );
-    
-    if (result.affectedRows>0){
+
+    if (result.affectedRows > 0) {
       await connection.commit();
       res.status(201).json({ message: "Password changed successfully." });
-    }else{
+    } else {
       await connection.rollback();
       res.status(400).json({ message: "Password changed unsuccessfully." });
     }
-
   } catch (err) {
-    if(connection) connection.rollback();
+    if (connection) connection.rollback();
     console.error("Change Password Error:", err);
-    res.status(500).json({ message: "Server Error. Could not change password." });
-  }finally{
-    if(connection) connection.release();
+    res
+      .status(500)
+      .json({ message: "Server Error. Could not change password." });
+  } finally {
+    if (connection) connection.release();
   }
 };
-
 
 export const sendOtp = async (req, res) => {
   const { email } = req.body;

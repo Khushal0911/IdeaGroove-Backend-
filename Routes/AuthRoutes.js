@@ -8,6 +8,7 @@ import {
   sendOtp,
   verifyOtp,
   changePassword,
+  checkAvailability,
 } from "../controllers/AuthController.js";
 const authRouter = express.Router();
 import { uploadProfilePic } from "../config/cloud.js";
@@ -22,5 +23,6 @@ authRouter.post("/changePassword", changePassword);
 authRouter.post("/sendOTP", sendOtp);
 authRouter.post("/verifyOTP", verifyOtp);
 authRouter.post("/updateComplaintStatus", updateComplaintStatus);
+authRouter.get("/check-availability", checkAvailability);
 
 export default authRouter;
