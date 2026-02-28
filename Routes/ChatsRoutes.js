@@ -5,7 +5,7 @@ import {
   sendMessage,
   getMessagesByRoom,
   deleteMessage,
-} from "../controllers/chatController.js";
+} from "../controllers/ChatsController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 

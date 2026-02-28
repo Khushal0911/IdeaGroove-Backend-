@@ -62,8 +62,11 @@ export const forgotPassword = async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
-
-    res.status(200).json({ message: "Reset link sent to email." });
+    res.status(200).json({
+      message: "Reset link sent to email.",
+      token,
+      id: targetUser.S_ID,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server Error" });
@@ -453,7 +456,6 @@ export const changePassword = async (req, res) => {
 
 export const sendOtp = async (req, res) => {
   const { email } = req.body;
-  console.log(email);
 
   const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -478,9 +480,10 @@ export const sendOtp = async (req, res) => {
 
     res.status(200).json({
       message: "OTP sent!",
-      token: otpToken, // The frontend will store this in a state
+      token: otpToken,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Failed to send email" });
   }
 };
