@@ -7,14 +7,14 @@ import {
   updateEventReaction,
   updateEvents,
 } from "../controllers/EventController.js";
-import { upload } from "../config/cloud.js";
+import { uploadEvent } from "../config/cloud.js";
 
 const eventRouter = express.Router();
 
-eventRouter.post("/create", upload.single("Poster_File"), addEvent);
+eventRouter.post("/create", uploadEvent.single("Poster_File"), addEvent);
 eventRouter.get("/", getEvents);
 eventRouter.get("/user/:id", getUserEvents);
-eventRouter.put("/update/:id", upload.single("Poster_File"), updateEvents);
+eventRouter.put("/update/:id", uploadEvent.single("Poster_File"), updateEvents);
 eventRouter.get("/delete/:id", deleteEvent);
 eventRouter.post("/react", updateEventReaction);
 

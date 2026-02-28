@@ -8,23 +8,37 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: async (req, file) => {
-    return {
-      folder: "notes",
+const createStorage = (subfolder, allowedFormats = ["jpg", "png", "jpeg"]) =>
+  new CloudinaryStorage({
+    cloudinary,
+    params: async (req, file) => ({
+      folder: `ideagroove/${subFolder}`,
       resource_type: "auto",
       type: "upload",
       access_mode: "public",
-      allowed_formats: ["jpg", "png", "jpeg", "pdf"],
-    };
-  },
-});
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024,
-  },
-});
+      allowed_formats: allowedFormats,
+    }),
+  });
+
+const createUpload = (subFolder, allowedFormats) =>
+  multer({
+    storage: createStorage(subFolder, allowedFormats),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  });
+
+export const uploadProfilePic = createUpload("profile_pics", [
+  "jpg",
+  "png",
+  "jpeg",
+]);
+export const uploadNote = createUpload("notes", ["jpg", "png", "jpeg", "pdf"]);
+export const uploadEvent = createUpload("events", ["jpg", "png", "jpeg"]);
+export const uploadChat = createUpload("chats", [
+  "jpg",
+  "png",
+  "jpeg",
+  "pdf",
+  "mp4",
+]);
 
 export { cloudinary, storage, upload };
