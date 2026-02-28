@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import db from "../config/db.js";
 import jwt from "jsonwebtoken"; // Import JWT
 import nodemailer from "nodemailer";
+import { sendBlockEmail, sendUnblockEmail } from "../services/emailService.js";
 
 export const adminLogin = async (req, res) => {
   try {
@@ -356,7 +357,7 @@ const CONTENT_CONFIG = {
     table: "notes_tbl",
     idColumn: "N_ID",
     titleCol: "File_Name",
-    ownerJoin: `JOIN student_tbl s ON s.S_ID = n.Added_By`,
+    ownerCol: "Added_By",
     alias: "n",
     label: "Note",
   },
@@ -364,7 +365,7 @@ const CONTENT_CONFIG = {
     table: "event_tbl",
     idColumn: "E_ID",
     titleCol: "Description",
-    ownerJoin: `JOIN student_tbl s ON s.S_ID = e.Added_By`,
+    ownerCol: "Added_By",
     alias: "e",
     label: "Event",
   },
@@ -372,7 +373,7 @@ const CONTENT_CONFIG = {
     table: "chat_rooms_tbl",
     idColumn: "Room_ID",
     titleCol: "Room_Name",
-    ownerJoin: `JOIN student_tbl s ON s.S_ID = cr.Created_By`,
+    ownerCol: "Created_By",
     alias: "cr",
     label: "Group",
   },
@@ -380,7 +381,7 @@ const CONTENT_CONFIG = {
     table: "question_tbl",
     idColumn: "Q_ID",
     titleCol: "Question",
-    ownerJoin: `JOIN student_tbl s ON s.S_ID = q.Added_By`,
+    ownerCol: "Added_By",
     alias: "q",
     label: "Question",
   },
@@ -390,21 +391,27 @@ const getContentWithOwner = async (type, id) => {
   const config = CONTENT_CONFIG[type];
   if (!config) throw new Error(`Unknown content type: ${type}`);
 
-  const { table, idColumn, titleCol, ownerJoin, alias } = config;
+  const { table, idColumn, titleCol, alias, ownerCol } = config;
 
-  const [rows] = db.query(
+  // Add this to see what db.query actually returns
+  const result = await db.query(
     `SELECT
-      ${alias}.${idColumn} AS content_id,
-      ${alias}.${titleCol} AS content_title,
-      ${alias}.Is_Active,
-      s.S_ID as owner_id,
-      s.name as owner_name,
-      s.email as owner_email
-    FROM ${table} ${alias}
-    ${ownerJoin}
-    WHERE ${alias}.${idColumn} = ?`,
+       ${alias}.${idColumn} AS content_id,
+       ${alias}.${titleCol} AS content_title,
+       ${alias}.Is_Active,
+       s.S_ID AS owner_id,
+       s.name AS owner_name,
+       s.email AS owner_email
+     FROM ${table} ${alias}
+     JOIN student_tbl s ON s.S_ID = ${alias}.${ownerCol}
+     WHERE ${alias}.${idColumn} = ?`,
     [id],
   );
+
+  console.log("Query result type:", typeof result, Array.isArray(result));
+  console.log("Query result:", result);
+
+  const rows = result[0]; // ✅ data array
   return rows[0] || null;
 };
 
