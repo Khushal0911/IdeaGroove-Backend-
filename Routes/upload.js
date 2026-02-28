@@ -1,31 +1,70 @@
 import express from "express";
-import multer from "multer";
-import { storage } from "../config/cloud.js"; // Import the storage engine
+import {
+  uploadProfilePic,
+  uploadNote,
+  uploadEvent,
+  uploadChat,
+} from "../config/cloudinary.js";
+
 const router = express.Router();
 
-const upload = multer({ storage: storage });
-
-router.post("/", upload.single("image"), async (req, res) => {
+// ─── Profile Picture ──────────────────────────────────────────────────────────
+router.post("/profile-pic", uploadProfilePic.single("image"), (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
-    }
+    if (!req.file)
+      return res
+        .status(400)
+        .json({ status: false, message: "No file uploaded" });
+    res
+      .status(200)
+      .json({ status: true, url: req.file.path, public_id: req.file.filename });
+  } catch (err) {
+    res.status(500).json({ status: false, error: err.message });
+  }
+});
 
-    // req.file.path is the URL returned by Cloudinary
-    // req.file.filename is the public_id
-    const imageUrl = req.file.path;
-    const publicId = req.file.filename;
+// ─── Notes ────────────────────────────────────────────────────────────────────
+router.post("/note", uploadNote.single("image"), (req, res) => {
+  try {
+    if (!req.file)
+      return res
+        .status(400)
+        .json({ status: false, message: "No file uploaded" });
+    res
+      .status(200)
+      .json({ status: true, url: req.file.path, public_id: req.file.filename });
+  } catch (err) {
+    res.status(500).json({ status: false, error: err.message });
+  }
+});
 
-    // TODO: Insert into your SQL database here
-    // Example: await db.query('INSERT INTO uploads (url, public_id) VALUES (?, ?)', [imageUrl, publicId]);
+// ─── Events ───────────────────────────────────────────────────────────────────
+router.post("/event", uploadEvent.single("image"), (req, res) => {
+  try {
+    if (!req.file)
+      return res
+        .status(400)
+        .json({ status: false, message: "No file uploaded" });
+    res
+      .status(200)
+      .json({ status: true, url: req.file.path, public_id: req.file.filename });
+  } catch (err) {
+    res.status(500).json({ status: false, error: err.message });
+  }
+});
 
-    res.status(200).json({
-      success: true,
-      url: imageUrl,
-      public_id: publicId,
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+// ─── Chat Attachments ─────────────────────────────────────────────────────────
+router.post("/chat", uploadChat.single("image"), (req, res) => {
+  try {
+    if (!req.file)
+      return res
+        .status(400)
+        .json({ status: false, message: "No file uploaded" });
+    res
+      .status(200)
+      .json({ status: true, url: req.file.path, public_id: req.file.filename });
+  } catch (err) {
+    res.status(500).json({ status: false, error: err.message });
   }
 });
 
