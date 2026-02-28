@@ -269,3 +269,321 @@ export const getRecentActivity = async (req, res) => {
     });
   }
 };
+
+export const getNotes = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 9;
+    const offset = (page - 1) * limit;
+    const search = req.query.search?.trim() || "";
+    const filter = req.query.filter || "all";
+    const degreeId = req.query.degree ? parseInt(req.query.degree) : null;
+    const subjectId = req.query.subject ? parseInt(req.query.subject) : null;
+
+    let conditions = [];
+    const queryParams = [];
+
+    if (search) {
+      conditions.push("(n.Description LIKE ? OR sub.Subject_Name LIKE ?)");
+      queryParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (degreeId) {
+      conditions.push("n.Degree_ID = ?");
+      queryParams.push(degreeId);
+    }
+
+    if (subjectId) {
+      conditions.push("n.Subject_ID = ?");
+      queryParams.push(subjectId);
+    }
+
+    const whereClause =
+      conditions.length > 0 ? conditions.join(" AND ") : "1=1";
+    const [countResult] = await db.query(
+      `SELECT COUNT(*) as total 
+       FROM notes_tbl n
+       LEFT JOIN subject_tbl sub ON n.Subject_ID = sub.Subject_ID
+       WHERE ${whereClause}`,
+      queryParams,
+    );
+    const total = countResult[0].total;
+
+    const allNotesQuery = `
+      SELECT 
+        n.N_ID,
+        n.Note_File,
+        n.File_Name,
+        n.Description,
+        n.Is_Active,
+        n.Added_on,
+        n.Added_By,
+        s.Username AS Author,
+        s.S_ID AS Author_ID,
+        d.Degree_Name,
+        d.Degree_ID,
+        sub.Subject_Name,
+        sub.Subject_ID
+      FROM notes_tbl n
+      LEFT JOIN student_tbl s   ON n.Added_By = s.S_ID
+      LEFT JOIN degree_tbl d    ON n.Degree_ID = d.Degree_ID
+      LEFT JOIN subject_tbl sub ON n.Subject_ID = sub.Subject_ID
+      WHERE ${whereClause}
+      LIMIT ? OFFSET ?
+    `;
+
+    const [notes] = await db.query(allNotesQuery, [
+      ...queryParams,
+      limit,
+      offset,
+    ]);
+
+    res.status(200).json({
+      status: true,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      notes,
+    });
+  } catch (err) {
+    console.error("Fetch Notes Error: ", err);
+    res.status(500).json({ status: false, error: "Failed to fetch notes" });
+  }
+};
+
+const CONTENT_CONFIG = {
+  note: {
+    table: "notes_tbl",
+    idColumn: "N_ID",
+    titleCol: "File_Name",
+    ownerJoin: `JOIN student_tbl s ON s.S_ID = n.Added_By`,
+    alias: "n",
+    label: "Note",
+  },
+  event: {
+    table: "event_tbl",
+    idColumn: "E_ID",
+    titleCol: "Description",
+    ownerJoin: `JOIN student_tbl s ON s.S_ID = e.Added_By`,
+    alias: "e",
+    label: "Event",
+  },
+  group: {
+    table: "chat_rooms_tbl",
+    idColumn: "Room_ID",
+    titleCol: "Room_Name",
+    ownerJoin: `JOIN student_tbl s ON s.S_ID = cr.Created_By`,
+    alias: "cr",
+    label: "Group",
+  },
+  question: {
+    table: "question_tbl",
+    idColumn: "Q_ID",
+    titleCol: "Question",
+    ownerJoin: `JOIN student_tbl s ON s.S_ID = q.Added_By`,
+    alias: "q",
+    label: "Question",
+  },
+};
+
+const getContentWithOwner = async (type, id) => {
+  const config = CONTENT_CONFIG[type];
+  if (!config) throw new Error(`Unknown content type: ${type}`);
+
+  const { table, idColumn, titleCol, ownerJoin, alias } = config;
+
+  const [rows] = db.query(
+    `SELECT
+      ${alias}.${idColumn} AS content_id,
+      ${alias}.${titleCol} AS content_title,
+      ${alias}.Is_Active,
+      s.S_ID as owner_id,
+      s.name as owner_name,
+      s.email as owner_email
+    FROM ${table} ${alias}
+    ${ownerJoin}
+    WHERE ${alias}.${idColumn} = ?`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+export const blockContent = async (req, res) => {
+  const { type, id, reason } = req.body;
+
+  if (!type || !id) {
+    return res
+      .status(400)
+      .json({ status: false, message: "type and id are required" });
+  }
+
+  const config = CONTENT_CONFIG[type];
+  if (!config) {
+    return res
+      .status(400)
+      .json({ status: false, message: `Invalid type: ${type}` });
+  }
+
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    // Get content + owner details
+    const content = await getContentWithOwner(type, id);
+    if (!content) {
+      await connection.rollback();
+      return res
+        .status(404)
+        .json({ status: false, message: "Content not found" });
+    }
+
+    if (content.Is_Active === 0) {
+      await connection.rollback();
+      return res
+        .status(400)
+        .json({ status: false, message: "Content is already blocked" });
+    }
+
+    // Block it
+    const deletedOnCol = type === "group" ? ", Deleted_On = NOW()" : "";
+    await connection.query(
+      `UPDATE ${config.table} SET Is_Active = 0 ${deletedOnCol} WHERE ${config.idColumn} = ?`,
+      [id],
+    );
+
+    await connection.commit();
+
+    // Send email (non-blocking — don't fail if email fails)
+    try {
+      await sendBlockEmail({
+        toEmail: content.owner_email,
+        studentName: content.owner_name,
+        contentType: config.label,
+        contentTitle: content.content_title,
+        reason: reason || null,
+      });
+    } catch (emailErr) {
+      console.error("Block email failed:", emailErr.message);
+    }
+
+    res.status(200).json({
+      status: true,
+      message: `${config.label} blocked successfully and email sent to ${content.owner_email}`,
+    });
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error("Block Content Error:", err);
+    res.status(500).json({ status: false, error: "Failed to block content" });
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+// ─── UNBLOCK ──────────────────────────────────────────────────────────────────
+// POST /api/admin/unblock
+// Body: { type: "note"|"event"|"group"|"question", id }
+export const unblockContent = async (req, res) => {
+  const { type, id } = req.body;
+
+  if (!type || !id) {
+    return res
+      .status(400)
+      .json({ status: false, message: "type and id are required" });
+  }
+
+  const config = CONTENT_CONFIG[type];
+  if (!config) {
+    return res
+      .status(400)
+      .json({ status: false, message: `Invalid type: ${type}` });
+  }
+
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    // Get content + owner details
+    const content = await getContentWithOwner(type, id);
+    if (!content) {
+      await connection.rollback();
+      return res
+        .status(404)
+        .json({ status: false, message: "Content not found" });
+    }
+
+    if (content.Is_Active === 1) {
+      await connection.rollback();
+      return res
+        .status(400)
+        .json({ status: false, message: "Content is already active" });
+    }
+
+    // Unblock it
+    const deletedOnCol = type === "group" ? ", Deleted_On = NULL" : "";
+    await connection.query(
+      `UPDATE ${config.table} SET Is_Active = 1 ${deletedOnCol} WHERE ${config.idColumn} = ?`,
+      [id],
+    );
+
+    await connection.commit();
+
+    // Send email (non-blocking)
+    try {
+      await sendUnblockEmail({
+        toEmail: content.owner_email,
+        studentName: content.owner_name,
+        contentType: config.label,
+        contentTitle: content.content_title,
+      });
+    } catch (emailErr) {
+      console.error("Unblock email failed:", emailErr.message);
+    }
+
+    res.status(200).json({
+      status: true,
+      message: `${config.label} unblocked successfully and email sent to ${content.owner_email}`,
+    });
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error("Unblock Content Error:", err);
+    res.status(500).json({ status: false, error: "Failed to unblock content" });
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+// ─── TOGGLE (single endpoint for both block/unblock) ─────────────────────────
+// POST /api/admin/toggle-block
+// Body: { type, id, reason? }
+export const toggleBlock = async (req, res) => {
+  const { type, id, reason } = req.body;
+
+  const config = CONTENT_CONFIG[type];
+  if (!config) {
+    return res
+      .status(400)
+      .json({ status: false, message: `Invalid type: ${type}` });
+  }
+
+  try {
+    const content = await getContentWithOwner(type, id);
+    if (!content) {
+      return res
+        .status(404)
+        .json({ status: false, message: "Content not found" });
+    }
+
+    // Delegate to block or unblock based on current status
+    req.body = { ...req.body, id };
+    if (content.Is_Active === 1) {
+      return blockContent(req, res);
+    } else {
+      return unblockContent(req, res);
+    }
+  } catch (err) {
+    console.error("Toggle Block Error:", err);
+    res.status(500).json({ status: false, error: "Failed to toggle block" });
+  }
+};
