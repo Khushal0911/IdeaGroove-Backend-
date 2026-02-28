@@ -127,7 +127,7 @@ export const getUserNotes = async (req, res) => {
 export const addNotes = async (req, res) => {
   const { Degree_ID, Subject_ID, Description, Added_By } = req.body || {};
   const Note_File = req.file ? req.file.path : null;
-  const File_Name = req.file ? req.file.filename : null;
+  const File_Name = req.file ? req.file.originalname : null;
   let connection;
   try {
     connection = await db.getConnection();

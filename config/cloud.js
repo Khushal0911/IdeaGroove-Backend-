@@ -8,7 +8,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const createStorage = (subfolder, allowedFormats = ["jpg", "png", "jpeg"]) =>
+const createStorage = (subFolder, allowedFormats = ["jpg", "png", "jpeg"]) =>
   new CloudinaryStorage({
     cloudinary,
     params: async (req, file) => ({
@@ -41,4 +41,4 @@ export const uploadChat = createUpload("chats", [
   "mp4",
 ]);
 
-export { cloudinary, storage, upload };
+export { cloudinary };
