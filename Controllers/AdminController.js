@@ -2,7 +2,11 @@ import bcrypt from "bcryptjs";
 import db from "../config/db.js";
 import jwt from "jsonwebtoken"; // Import JWT
 import nodemailer from "nodemailer";
-import { sendBlockEmail, sendUnblockEmail } from "../services/emailService.js";
+import {
+  sendBlockEmail,
+  sendComplaintStatusEmail,
+  sendUnblockEmail,
+} from "../services/emailService.js";
 
 export const adminLogin = async (req, res) => {
   try {
@@ -82,7 +86,7 @@ AND Is_Active = 1`,
     );
 
     const [complaints] = await db.query(
-      "SELECT COUNT(*) AS total FROM complaint_tbl WHERE status = 'pending'",
+      "SELECT COUNT(*) AS total FROM complaint_tbl WHERE status != 'resolved'",
     );
 
     res.json({
@@ -98,35 +102,35 @@ AND Is_Active = 1`,
   }
 };
 
-export const updateComplaintStatus = async (req, res) => {
-  const { id, status } = req.body;
+// export const updateComplaintStatus = async (req, res) => {
+//   const { id, status } = req.body;
 
-  try {
-    const [result] = await db.query(
-      `
-      UPDATE complaint_tbl
-      SET status = ?
-      WHERE Complaint_ID = ?
-      `,
-      [status, id],
-    );
+//   try {
+//     const [result] = await db.query(
+//       `
+//       UPDATE complaint_tbl
+//       SET status = ?
+//       WHERE Complaint_ID = ?
+//       `,
+//       [status, id],
+//     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        error: "Complaint not found",
-      });
-    }
+//     if (result.affectedRows === 0) {
+//       return res.status(404).json({
+//         error: "Complaint not found",
+//       });
+//     }
 
-    res.json({
-      message: "Complaint status updated successfully",
-    });
-  } catch (err) {
-    console.error("Complaint Status Updation Error:", err);
-    res.status(500).json({
-      error: "Internal Server Error",
-    });
-  }
-};
+//     res.json({
+//       message: "Complaint status updated successfully",
+//     });
+//   } catch (err) {
+//     console.error("Complaint Status Updation Error:", err);
+//     res.status(500).json({
+//       error: "Internal Server Error",
+//     });
+//   }
+// };
 
 export const getTopContributor = async (req, res) => {
   try {
@@ -260,7 +264,6 @@ export const getRecentActivity = async (req, res) => {
 
   ) AS combined_activity
   ORDER BY created_at DESC
-  LIMIT 10
 `);
     res.json(recentActivity);
   } catch (err) {
@@ -394,34 +397,6 @@ const CONTENT_CONFIG = {
     label: "Answer",
   },
 };
-
-// const getContentWithOwner = async (type, id) => {
-//   const config = CONTENT_CONFIG[type];
-//   if (!config) throw new Error(`Unknown content type: ${type}`);
-
-//   const { table, idColumn, titleCol, alias, ownerCol } = config;
-
-//   // Add this to see what db.query actually returns
-//   const result = await db.query(
-//     `SELECT
-//        ${alias}.${idColumn} AS content_id,
-//        ${alias}.${titleCol} AS content_title,
-//        ${alias}.Is_Active,
-//        s.S_ID AS owner_id,
-//        s.name AS owner_name,
-//        s.email AS owner_email
-//      FROM ${table} ${alias}
-//      JOIN student_tbl s ON s.S_ID = ${alias}.${ownerCol}
-//      WHERE ${alias}.${idColumn} = ?`,
-//     [id],
-//   );
-
-//   console.log("Query result type:", typeof result, Array.isArray(result));
-//   console.log("Query result:", result);
-
-//   const rows = result[0]; // ✅ data array
-//   return rows[0] || null;
-// };
 
 const getContentWithOwner = async (type, id) => {
   const config = CONTENT_CONFIG[type];
@@ -671,5 +646,67 @@ export const toggleBlock = async (req, res) => {
   } catch (err) {
     console.error("Toggle Block Error:", err);
     res.status(500).json({ status: false, error: "Failed to toggle block" });
+  }
+};
+
+export const updateComplaintStatus = async (req, res) => {
+  const { id, status, reason } = req.body;
+
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    // 1. Get complaint + student details
+    const result = await connection.query(
+      `SELECT 
+         c.Complaint_ID,
+         c.Complaint_Text,
+         c.Status,
+         s.name AS student_name,
+         s.email AS student_email
+       FROM complaint_tbl c
+       JOIN student_tbl s ON s.S_ID = c.Student_ID
+       WHERE c.Complaint_ID = ?`,
+      [id],
+    );
+
+    const complaint = result[0][0];
+    if (!complaint) {
+      await connection.rollback();
+      return res
+        .status(404)
+        .json({ status: false, message: "Complaint not found" });
+    }
+
+    // 2. Update status
+    await connection.query(
+      `UPDATE complaint_tbl SET Status = ? WHERE Complaint_ID = ?`,
+      [status, id],
+    );
+
+    await connection.commit();
+
+    // 3. Send email (non-blocking)
+    try {
+      await sendComplaintStatusEmail({
+        toEmail: complaint.student_email,
+        studentName: complaint.student_name,
+        complaintText: complaint.Complaint_Text,
+        oldStatus: complaint.Status,
+        newStatus: status,
+        reason: reason || null,
+      });
+    } catch (emailErr) {
+      console.error("Complaint email failed:", emailErr.message);
+    }
+
+    res.status(200).json({ message: "Complaint status updated successfully" });
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error("Complaint Status Update Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    if (connection) connection.release();
   }
 };
