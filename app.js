@@ -1,4 +1,5 @@
 import "dotenv/config";
+import http from "http";
 import express from "express";
 import cors from "cors";
 import passport from "passport";
@@ -18,15 +19,20 @@ import degreeSubjectRouter from "./routes/DegreeSubjectRoutes.js";
 import groupRouter from "./routes/GroupRoutes.js";
 import hobbyRouter from "./Routes/HobbyRoutes.js";
 import complaintRouter from "./routes/ComplaintRoutes.js";
+import chatRouter from "./routes/ChatsRoutes.js";
+import { initSocket } from "./socket/socketServer.js";
 
 const app = express();
+// Create raw http.Server so Socket.io can attach to the same port
+const httpServer = http.createServer(app);
+
 axios.defaults.withCredentials = true;
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
     methods: "GET,POST,PUT,DELETE",
-    credentials: true, // Required for cookies to be sent/received
+    credentials: true,
   }),
 );
 
@@ -35,9 +41,8 @@ app.use(express.json());
 app.use(
   cookieSession({
     name: "session",
-    // Use an env variable for security, fallback to a string for dev
     keys: [process.env.COOKIE_KEY || "idea-groove-secret-key"],
-    maxAge: 24 * 60 * 60 * 1000, // Session valid for 24 hours
+    maxAge: 24 * 60 * 60 * 1000,
   }),
 );
 
@@ -55,7 +60,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// 4. Initialize Passport (Required if using sessions)
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -70,7 +74,8 @@ app.use("/api/qna", qnaRouter);
 app.use("/api/degreeSubject", degreeSubjectRouter);
 app.use("/api/groups", groupRouter);
 app.use("/api/hobbies", hobbyRouter);
-app.use("/api/complaints",complaintRouter);
+app.use("/api/complaints", complaintRouter);
+app.use("/api/chats", chatRouter);
 
 app.get("/", (req, res) => {
   res.send("Server is Live");
@@ -81,8 +86,12 @@ const PORT = process.env.PORT || 3000;
 const startServer = async () => {
   try {
     await testConnection();
-    app.listen(PORT, () => {
+    // Listen on httpServer (not app) so Socket.io shares the same port
+    httpServer.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
+      // Attach Socket.io after server is listening
+      initSocket(httpServer);
+      console.log(`Socket.io initialised on port ${PORT}`);
     });
   } catch (err) {
     console.error(
