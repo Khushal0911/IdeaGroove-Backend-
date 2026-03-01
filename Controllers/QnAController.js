@@ -77,7 +77,8 @@ export const getQnA = async (req, res) => {
                 'Answer', a3.Answer,
                 'Answer_Author', s2.username,
                 'Answered_On', a3.Answered_On,
-                'Answered_By', a3.Answered_By
+                'Answered_By', a3.Answered_By,
+                'Is_Active', a3.Is_Active
               )
             ),
             JSON_ARRAY()

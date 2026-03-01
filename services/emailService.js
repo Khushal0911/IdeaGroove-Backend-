@@ -8,7 +8,13 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const getBlockTemplate = (studentName, contentType, contentTitle, reason) => `
+const getBlockTemplate = (
+  studentName,
+  contentType,
+  contentTitle,
+  reason,
+  extraInfo,
+) => `
   <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
     <div style="background: #166534; padding: 24px 32px;">
       <h1 style="color: white; margin: 0; font-size: 20px;">IdeaGroove</h1>
@@ -22,6 +28,16 @@ const getBlockTemplate = (studentName, contentType, contentTitle, reason) => `
         <span style="color: #dc2626; font-weight: bold;">blocked</span> 
         by our admin team.
       </p>
+
+      ${
+        extraInfo
+          ? `
+      <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 4px; margin: 16px 0;">
+        <p style="margin: 0; color: #1e40af; font-size: 13px;">${extraInfo}</p>
+      </div>`
+          : ""
+      }
+
       ${
         reason
           ? `
@@ -30,6 +46,7 @@ const getBlockTemplate = (studentName, contentType, contentTitle, reason) => `
       </div>`
           : ""
       }
+
       <p style="color: #6b7280; font-size: 13px; line-height: 1.6;">
         If you believe this was a mistake, please contact our support team or raise a complaint through the platform.
       </p>
@@ -43,7 +60,12 @@ const getBlockTemplate = (studentName, contentType, contentTitle, reason) => `
   </div>
 `;
 
-const getUnblockTemplate = (studentName, contentType, contentTitle) => `
+const getUnblockTemplate = (
+  studentName,
+  contentType,
+  contentTitle,
+  extraInfo,
+) => `
   <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
     <div style="background: #166534; padding: 24px 32px;">
       <h1 style="color: white; margin: 0; font-size: 20px;">IdeaGroove</h1>
@@ -57,8 +79,18 @@ const getUnblockTemplate = (studentName, contentType, contentTitle) => `
         <span style="color: #16a34a; font-weight: bold;">unblocked</span> 
         and is now visible to the community again.
       </p>
+
+      ${
+        extraInfo
+          ? `
+      <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 4px; margin: 16px 0;">
+        <p style="margin: 0; color: #1e40af; font-size: 13px;">${extraInfo}</p>
+      </div>`
+          : ""
+      }
+
       <p style="color: #6b7280; font-size: 13px; line-height: 1.6;">
-        Thank you for your contributions to IdeaGroove.
+        Thank you for your contributions to IdeaGroove. Keep sharing knowledge with the community!
       </p>
       <p style="color: #374151; font-size: 14px; margin-top: 24px;">— IdeaGroove Admin Team</p>
     </div>
@@ -76,12 +108,19 @@ export const sendBlockEmail = async ({
   contentType,
   contentTitle,
   reason,
+  extraInfo,
 }) => {
   await transporter.sendMail({
     from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
     to: toEmail,
-    subject: `Your ${contentType} has been blocked - Ideagroove`,
-    html: getBlockTemplate(studentName, contentType, contentTitle, reason),
+    subject: `Your ${contentType} has been blocked - IdeaGroove`,
+    html: getBlockTemplate(
+      studentName,
+      contentType,
+      contentTitle,
+      reason,
+      extraInfo,
+    ),
   });
 };
 
@@ -90,11 +129,12 @@ export const sendUnblockEmail = async ({
   studentName,
   contentType,
   contentTitle,
+  extraInfo,
 }) => {
   await transporter.sendMail({
-    from: `"Ideagroove Admin" <${process.env.EMAIL_USER}>`,
+    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
     to: toEmail,
-    subject: `Your ${contentType} has been unblocked - Ideagroove`,
-    html: getUnblockTemplate(studentName, contentType, contentTitle),
+    subject: `Your ${contentType} has been restored - IdeaGroove`,
+    html: getUnblockTemplate(studentName, contentType, contentTitle, extraInfo),
   });
 };

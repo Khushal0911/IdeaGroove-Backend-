@@ -385,7 +385,43 @@ const CONTENT_CONFIG = {
     alias: "q",
     label: "Question",
   },
+  answer: {
+    table: "answer_tbl",
+    idColumn: "A_ID",
+    titleCol: "Answer",
+    ownerCol: "Answered_By",
+    alias: "a",
+    label: "Answer",
+  },
 };
+
+// const getContentWithOwner = async (type, id) => {
+//   const config = CONTENT_CONFIG[type];
+//   if (!config) throw new Error(`Unknown content type: ${type}`);
+
+//   const { table, idColumn, titleCol, alias, ownerCol } = config;
+
+//   // Add this to see what db.query actually returns
+//   const result = await db.query(
+//     `SELECT
+//        ${alias}.${idColumn} AS content_id,
+//        ${alias}.${titleCol} AS content_title,
+//        ${alias}.Is_Active,
+//        s.S_ID AS owner_id,
+//        s.name AS owner_name,
+//        s.email AS owner_email
+//      FROM ${table} ${alias}
+//      JOIN student_tbl s ON s.S_ID = ${alias}.${ownerCol}
+//      WHERE ${alias}.${idColumn} = ?`,
+//     [id],
+//   );
+
+//   console.log("Query result type:", typeof result, Array.isArray(result));
+//   console.log("Query result:", result);
+
+//   const rows = result[0]; // ✅ data array
+//   return rows[0] || null;
+// };
 
 const getContentWithOwner = async (type, id) => {
   const config = CONTENT_CONFIG[type];
@@ -393,25 +429,48 @@ const getContentWithOwner = async (type, id) => {
 
   const { table, idColumn, titleCol, alias, ownerCol } = config;
 
-  // Add this to see what db.query actually returns
-  const result = await db.query(
-    `SELECT
-       ${alias}.${idColumn} AS content_id,
-       ${alias}.${titleCol} AS content_title,
-       ${alias}.Is_Active,
-       s.S_ID AS owner_id,
-       s.name AS owner_name,
-       s.email AS owner_email
-     FROM ${table} ${alias}
-     JOIN student_tbl s ON s.S_ID = ${alias}.${ownerCol}
-     WHERE ${alias}.${idColumn} = ?`,
-    [id],
-  );
+  let query;
+  let params = [id];
 
-  console.log("Query result type:", typeof result, Array.isArray(result));
-  console.log("Query result:", result);
+  // ─── Special case for answer — include question details ───────────────────
+  if (type === "answer") {
+    query = `
+      SELECT
+        a.A_ID AS content_id,
+        a.Answer AS content_title,
+        a.Is_Active,
+        s.S_ID AS owner_id,
+        s.name AS owner_name,
+        s.email AS owner_email,
+        q.Q_ID AS question_id,
+        q.Question AS question_text,
+        qs.S_ID AS question_owner_id,
+        qs.name AS question_owner_name,
+        qs.email AS question_owner_email
+      FROM answer_tbl a
+      JOIN student_tbl s  ON s.S_ID = a.Answered_By
+      JOIN question_tbl q ON q.Q_ID = a.Q_ID
+      JOIN student_tbl qs ON qs.S_ID = q.Added_By
+      WHERE a.A_ID = ?
+    `;
+  } else {
+    // ─── Generic case for all other types ────────────────────────────────────
+    query = `
+      SELECT
+        ${alias}.${idColumn} AS content_id,
+        ${alias}.${titleCol} AS content_title,
+        ${alias}.Is_Active,
+        s.S_ID AS owner_id,
+        s.name AS owner_name,
+        s.email AS owner_email
+      FROM ${table} ${alias}
+      JOIN student_tbl s ON s.S_ID = ${alias}.${ownerCol}
+      WHERE ${alias}.${idColumn} = ?
+    `;
+  }
 
-  const rows = result[0]; // ✅ data array
+  const result = await db.query(query, params);
+  const rows = result[0];
   return rows[0] || null;
 };
 
@@ -463,13 +522,26 @@ export const blockContent = async (req, res) => {
 
     // Send email (non-blocking — don't fail if email fails)
     try {
-      await sendBlockEmail({
-        toEmail: content.owner_email,
-        studentName: content.owner_name,
-        contentType: config.label,
-        contentTitle: content.content_title,
-        reason: reason || null,
-      });
+      if (type === "answer") {
+        // Notify answer owner
+        await sendBlockEmail({
+          toEmail: content.owner_email,
+          studentName: content.owner_name,
+          contentType: "Answer",
+          contentTitle: content.content_title,
+          reason: reason || null,
+          // Extra context
+          extraInfo: `This was an answer to the question: "${content.question_text}" posted by ${content.question_owner_name}`,
+        });
+      } else {
+        await sendBlockEmail({
+          toEmail: content.owner_email,
+          studentName: content.owner_name,
+          contentType: config.label,
+          contentTitle: content.content_title,
+          reason: reason || null,
+        });
+      }
     } catch (emailErr) {
       console.error("Block email failed:", emailErr.message);
     }
@@ -538,12 +610,22 @@ export const unblockContent = async (req, res) => {
 
     // Send email (non-blocking)
     try {
-      await sendUnblockEmail({
-        toEmail: content.owner_email,
-        studentName: content.owner_name,
-        contentType: config.label,
-        contentTitle: content.content_title,
-      });
+      if (type === "answer") {
+        await sendUnblockEmail({
+          toEmail: content.owner_email,
+          studentName: content.owner_name,
+          contentType: "Answer",
+          contentTitle: content.content_title,
+          extraInfo: `This was an answer to the question: "${content.question_text}" posted by ${content.question_owner_name}`,
+        });
+      } else {
+        await sendUnblockEmail({
+          toEmail: content.owner_email,
+          studentName: content.owner_name,
+          contentType: config.label,
+          contentTitle: content.content_title,
+        });
+      }
     } catch (emailErr) {
       console.error("Unblock email failed:", emailErr.message);
     }
@@ -561,9 +643,6 @@ export const unblockContent = async (req, res) => {
   }
 };
 
-// ─── TOGGLE (single endpoint for both block/unblock) ─────────────────────────
-// POST /api/admin/toggle-block
-// Body: { type, id, reason? }
 export const toggleBlock = async (req, res) => {
   const { type, id, reason } = req.body;
 
