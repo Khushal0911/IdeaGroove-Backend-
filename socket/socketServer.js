@@ -243,6 +243,97 @@ export const initSocket = (httpServer) => {
       }
     });
 
+    socket.on("message:send_file", async ({ roomId, fileUrl, messageType }) => {
+      const studentId = socket.data.studentId;
+      if (!roomId || !fileUrl || !studentId) return;
+
+      try {
+        const { default: db } = await import("../config/db.js");
+
+        const [membership] = await db.query(
+          `SELECT Member_ID FROM chat_room_members_tbl
+       WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
+          [roomId, studentId],
+        );
+        if (membership.length === 0) return;
+
+        // For file messages, Message_Text stores the URL, Message_Type = 'image' or 'file'
+        const [result] = await db.query(
+          `INSERT INTO chats_tbl (Room_ID, Sender_ID, Message_Type, Message_Text)
+       VALUES (?, ?, ?, ?)`,
+          [roomId, studentId, messageType, fileUrl],
+        );
+
+        const [rows] = await db.query(
+          `SELECT c.Message_ID, c.Room_ID, c.Sender_ID,
+              s.username AS Sender_Username, s.Profile_Pic AS Sender_Profile_Pic,
+              c.Message_Type, c.Message_Text, c.Sent_On, c.Is_Edited, c.Is_Deleted
+       FROM chats_tbl c
+       JOIN student_tbl s ON c.Sender_ID = s.S_ID
+       WHERE c.Message_ID = ?`,
+          [result.insertId],
+        );
+
+        io.to(String(roomId)).emit("message:new", {
+          roomId: Number(roomId),
+          message: rows[0],
+        });
+      } catch (err) {
+        console.error("[Socket] message:send_file error:", err);
+      }
+    });
+
+    /* ── EDIT MESSAGE ──────────────────────────────────────────── */
+    socket.on("message:edit", async ({ roomId, messageId, newText }) => {
+      const studentId = socket.data.studentId;
+      if (!roomId || !messageId || !newText?.trim() || !studentId) return;
+
+      try {
+        const { default: db } = await import("../config/db.js");
+
+        const [result] = await db.query(
+          `UPDATE chats_tbl SET Message_Text = ?, Is_Edited = 1
+       WHERE Message_ID = ? AND Sender_ID = ? AND Is_Deleted = 0`,
+          [newText.trim(), messageId, studentId],
+        );
+
+        if (result.affectedRows > 0) {
+          io.to(String(roomId)).emit("message:edited", {
+            roomId: Number(roomId),
+            messageId,
+            newText: newText.trim(),
+          });
+        }
+      } catch (err) {
+        console.error("[Socket] message:edit error:", err);
+      }
+    });
+
+    /* ── DELETE MESSAGE ────────────────────────────────────────── */
+    socket.on("message:delete", async ({ roomId, messageId }) => {
+      const studentId = socket.data.studentId;
+      if (!roomId || !messageId || !studentId) return;
+
+      try {
+        const { default: db } = await import("../config/db.js");
+
+        const [result] = await db.query(
+          `UPDATE chats_tbl SET Is_Deleted = 1
+       WHERE Message_ID = ? AND Sender_ID = ?`,
+          [messageId, studentId],
+        );
+
+        if (result.affectedRows > 0) {
+          io.to(String(roomId)).emit("message:deleted", {
+            roomId: Number(roomId),
+            messageId,
+          });
+        }
+      } catch (err) {
+        console.error("[Socket] message:delete error:", err);
+      }
+    });
+
     /* ──────────────────────────────────────────────
        TYPING INDICATORS
     ────────────────────────────────────────────── */
