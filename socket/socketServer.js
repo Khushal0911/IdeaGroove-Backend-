@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
 
 /**
  * Initialise Socket.io and attach all chat event handlers.
@@ -31,6 +32,21 @@ export const initSocket = (httpServer) => {
 
       // Tell everyone this user is online
       io.emit("user:status", { studentId, status: "online" });
+
+      // Send the newly connected user the full current online list
+      const currentOnline = Array.from(onlineUsers.keys());
+      socket.emit("users:online_list", { onlineUserIds: currentOnline });
+    });
+
+    /* ──────────────────────────────────────────────
+       SUBSCRIBE TO ROOM (background subscription)
+       Client emits: { roomId }
+       Just joins the socket room — no history, no mark-seen.
+       Used to receive message:new for rooms not currently open.
+    ────────────────────────────────────────────── */
+    socket.on("room:subscribe", ({ roomId }) => {
+      if (!roomId) return;
+      socket.join(String(roomId));
     });
 
     /* ──────────────────────────────────────────────
@@ -44,8 +60,20 @@ export const initSocket = (httpServer) => {
       socket.join(String(roomId));
 
       try {
-        // Lazy-import db so socket file stays independent
         const { default: db } = await import("../config/db.js");
+
+        // Get Member_ID first (needed for proper seen tracking)
+        let memberId = null;
+        if (studentId) {
+          const [memberData] = await db.query(
+            `SELECT Member_ID FROM chat_room_members_tbl
+             WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
+            [roomId, studentId],
+          );
+          if (memberData.length > 0) {
+            memberId = memberData[0].Member_ID;
+          }
+        }
 
         const [messages] = await db.query(
           `SELECT
@@ -56,26 +84,50 @@ export const initSocket = (httpServer) => {
              s.Profile_Pic AS Sender_Profile_Pic,
              c.Message_Type,
              c.Message_Text,
+             c.Encryption_IV,
              c.Sent_On,
              c.Is_Edited,
              c.Is_Deleted,
              EXISTS(
                SELECT 1 FROM chats_seen_tbl cs
-               WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID != c.Sender_ID
+               WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = ?
                LIMIT 1
              ) AS Is_Seen
            FROM chats_tbl c
            JOIN student_tbl s ON c.Sender_ID = s.S_ID
-           WHERE c.Room_ID = ?
+           WHERE c.Room_ID = ? AND c.Is_Deleted = 0
            ORDER BY c.Sent_On ASC
            LIMIT 50`,
-          [roomId],
+          [memberId, roomId],
         );
 
-        socket.emit("room:history", { roomId, messages });
+        // Decrypt messages before sending to client
+        const decryptedMessages = messages.map((msg) => {
+          if (
+            msg.Message_Text &&
+            msg.Encryption_IV &&
+            msg.Message_Type === "text"
+          ) {
+            try {
+              return {
+                ...msg,
+                Message_Text: decryptMessage(
+                  msg.Message_Text,
+                  msg.Encryption_IV,
+                ),
+              };
+            } catch (err) {
+              console.error("[Socket] room:join decryption error:", err);
+              return msg;
+            }
+          }
+          return msg;
+        });
 
-        // Mark all messages in this room as seen by this student
-        if (studentId) {
+        socket.emit("room:history", { roomId, messages: decryptedMessages });
+
+        // Mark all unread messages in this room as seen by this member
+        if (memberId) {
           const [unread] = await db.query(
             `SELECT c.Message_ID FROM chats_tbl c
              LEFT JOIN chats_seen_tbl cs
@@ -84,13 +136,13 @@ export const initSocket = (httpServer) => {
                AND c.Sender_ID != ?
                AND c.Is_Deleted = 0
                AND cs.Seen_ID IS NULL`,
-            [studentId, roomId, studentId],
+            [memberId, roomId, studentId],
           );
 
           for (const row of unread) {
             await db.query(
               `INSERT IGNORE INTO chats_seen_tbl (Message_ID, Member_ID) VALUES (?, ?)`,
-              [row.Message_ID, studentId],
+              [row.Message_ID, memberId],
             );
           }
 
@@ -137,14 +189,17 @@ export const initSocket = (httpServer) => {
           return;
         }
 
-        // Insert message
+        // Encrypt the message
+        const { encryptedData, iv } = encryptMessage(message.trim());
+
+        // Insert encrypted message
         const [result] = await db.query(
-          `INSERT INTO chats_tbl (Room_ID, Sender_ID, Message_Type, Message_Text)
-           VALUES (?, ?, 'text', ?)`,
-          [roomId, studentId, message.trim()],
+          `INSERT INTO chats_tbl (Room_ID, Sender_ID, Message_Type, Message_Text, Encryption_IV)
+           VALUES (?, ?, 'text', ?, ?)`,
+          [roomId, studentId, encryptedData, iv],
         );
 
-        // Fetch the inserted message with sender info
+        // Fetch inserted message with sender info
         const [rows] = await db.query(
           `SELECT
              c.Message_ID,
@@ -154,6 +209,7 @@ export const initSocket = (httpServer) => {
              s.Profile_Pic AS Sender_Profile_Pic,
              c.Message_Type,
              c.Message_Text,
+             c.Encryption_IV,
              c.Sent_On,
              c.Is_Edited,
              c.Is_Deleted
@@ -164,6 +220,18 @@ export const initSocket = (httpServer) => {
         );
 
         const newMessage = rows[0];
+
+        // Decrypt before broadcast
+        if (newMessage.Message_Text && newMessage.Encryption_IV) {
+          try {
+            newMessage.Message_Text = decryptMessage(
+              newMessage.Message_Text,
+              newMessage.Encryption_IV,
+            );
+          } catch (err) {
+            console.error("[Socket] message:send decryption error:", err);
+          }
+        }
 
         // Broadcast to everyone in the room (including sender)
         io.to(String(roomId)).emit("message:new", {
@@ -189,17 +257,43 @@ export const initSocket = (httpServer) => {
              c.Message_ID, c.Room_ID, c.Sender_ID,
              s.username AS Sender_Username,
              s.Profile_Pic AS Sender_Profile_Pic,
-             c.Message_Type, c.Message_Text,
+             c.Message_Type, c.Message_Text, c.Encryption_IV,
              c.Sent_On, c.Is_Edited, c.Is_Deleted
            FROM chats_tbl c
            JOIN student_tbl s ON c.Sender_ID = s.S_ID
-           WHERE c.Room_ID = ?
+           WHERE c.Room_ID = ? AND c.Is_Deleted = 0
            ORDER BY c.Sent_On ASC
            LIMIT 50 OFFSET ?`,
           [roomId, offset],
         );
 
-        socket.emit("message:more", { roomId, messages });
+        // Decrypt messages before sending
+        const decryptedMessages = messages.map((msg) => {
+          if (
+            msg.Message_Text &&
+            msg.Encryption_IV &&
+            msg.Message_Type === "text"
+          ) {
+            try {
+              return {
+                ...msg,
+                Message_Text: decryptMessage(
+                  msg.Message_Text,
+                  msg.Encryption_IV,
+                ),
+              };
+            } catch (err) {
+              console.error(
+                "[Socket] message:load_more decryption error:",
+                err,
+              );
+              return msg;
+            }
+          }
+          return msg;
+        });
+
+        socket.emit("message:more", { roomId, messages: decryptedMessages });
       } catch (err) {
         console.error("[Socket] message:load_more error:", err);
       }
@@ -216,6 +310,17 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/db.js");
 
+        // Get Member_ID first
+        const [memberData] = await db.query(
+          `SELECT Member_ID FROM chat_room_members_tbl
+           WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
+          [roomId, studentId],
+        );
+
+        if (memberData.length === 0) return;
+
+        const memberId = memberData[0].Member_ID;
+
         const [unread] = await db.query(
           `SELECT c.Message_ID FROM chats_tbl c
            LEFT JOIN chats_seen_tbl cs
@@ -224,13 +329,13 @@ export const initSocket = (httpServer) => {
              AND c.Sender_ID != ?
              AND c.Is_Deleted = 0
              AND cs.Seen_ID IS NULL`,
-          [studentId, roomId, studentId],
+          [memberId, roomId, studentId],
         );
 
         for (const row of unread) {
           await db.query(
             `INSERT IGNORE INTO chats_seen_tbl (Message_ID, Member_ID) VALUES (?, ?)`,
-            [row.Message_ID, studentId],
+            [row.Message_ID, memberId],
           );
         }
 
@@ -243,6 +348,9 @@ export const initSocket = (httpServer) => {
       }
     });
 
+    /* ──────────────────────────────────────────────
+       SEND FILE/IMAGE
+    ────────────────────────────────────────────── */
     socket.on("message:send_file", async ({ roomId, fileUrl, messageType }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !fileUrl || !studentId) return;
@@ -252,15 +360,15 @@ export const initSocket = (httpServer) => {
 
         const [membership] = await db.query(
           `SELECT Member_ID FROM chat_room_members_tbl
-       WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
+           WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
           [roomId, studentId],
         );
         if (membership.length === 0) return;
 
-        // For file messages, Message_Text stores the URL, Message_Type = 'image' or 'file'
+        // File messages store URL as Message_Text, no encryption needed
         const [result] = await db.query(
           `INSERT INTO chats_tbl (Room_ID, Sender_ID, Message_Type, Message_Text)
-       VALUES (?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?)`,
           [roomId, studentId, messageType, fileUrl],
         );
 
@@ -268,9 +376,9 @@ export const initSocket = (httpServer) => {
           `SELECT c.Message_ID, c.Room_ID, c.Sender_ID,
               s.username AS Sender_Username, s.Profile_Pic AS Sender_Profile_Pic,
               c.Message_Type, c.Message_Text, c.Sent_On, c.Is_Edited, c.Is_Deleted
-       FROM chats_tbl c
-       JOIN student_tbl s ON c.Sender_ID = s.S_ID
-       WHERE c.Message_ID = ?`,
+           FROM chats_tbl c
+           JOIN student_tbl s ON c.Sender_ID = s.S_ID
+           WHERE c.Message_ID = ?`,
           [result.insertId],
         );
 
@@ -291,10 +399,13 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/db.js");
 
+        // Re-encrypt the edited text with a new IV
+        const { encryptedData, iv } = encryptMessage(newText.trim());
+
         const [result] = await db.query(
-          `UPDATE chats_tbl SET Message_Text = ?, Is_Edited = 1
-       WHERE Message_ID = ? AND Sender_ID = ? AND Is_Deleted = 0`,
-          [newText.trim(), messageId, studentId],
+          `UPDATE chats_tbl SET Message_Text = ?, Encryption_IV = ?, Is_Edited = 1
+           WHERE Message_ID = ? AND Sender_ID = ? AND Is_Deleted = 0`,
+          [encryptedData, iv, messageId, studentId],
         );
 
         if (result.affectedRows > 0) {
@@ -319,7 +430,7 @@ export const initSocket = (httpServer) => {
 
         const [result] = await db.query(
           `UPDATE chats_tbl SET Is_Deleted = 1
-       WHERE Message_ID = ? AND Sender_ID = ?`,
+           WHERE Message_ID = ? AND Sender_ID = ?`,
           [messageId, studentId],
         );
 
@@ -367,9 +478,28 @@ export const initSocket = (httpServer) => {
 
       try {
         const { default: db } = await import("../config/db.js");
+
+        // Get Member_IDs for all rooms at once
+        const [memberData] = await db.query(
+          `SELECT Room_ID, Member_ID FROM chat_room_members_tbl
+           WHERE Student_ID = ? AND Is_Active = 1`,
+          [studentId],
+        );
+
+        const memberMap = {};
+        memberData.forEach((m) => {
+          memberMap[m.Room_ID] = m.Member_ID;
+        });
+
         const counts = {};
 
         for (const roomId of roomIds) {
+          const memberId = memberMap[roomId];
+          if (!memberId) {
+            counts[roomId] = 0;
+            continue;
+          }
+
           const [rows] = await db.query(
             `SELECT COUNT(*) AS cnt
              FROM chats_tbl c
@@ -379,7 +509,7 @@ export const initSocket = (httpServer) => {
                AND c.Sender_ID != ?
                AND c.Is_Deleted = 0
                AND cs.Seen_ID IS NULL`,
-            [studentId, roomId, studentId],
+            [memberId, roomId, studentId],
           );
           counts[roomId] = rows[0].cnt;
         }
