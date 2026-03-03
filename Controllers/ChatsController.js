@@ -117,11 +117,19 @@ export const getUserChatRooms = async (req, res) => {
         (
           SELECT COUNT(*)
           FROM chats_tbl c2
-          LEFT JOIN chats_seen_tbl s 
-            ON c2.Message_ID = s.Message_ID AND s.Member_ID = ?
+          LEFT JOIN chats_seen_tbl s
+            ON c2.Message_ID = s.Message_ID
+            AND s.Member_ID = (
+              SELECT mem.Member_ID
+              FROM chat_room_members_tbl mem
+              WHERE mem.Room_ID = r.Room_ID
+                AND mem.Student_ID = ?
+                AND mem.Is_Active = 1
+              LIMIT 1
+            )
           WHERE c2.Room_ID = r.Room_ID
             AND c2.Sender_ID != ?
-            AND s.Message_ID IS NULL
+            AND s.Seen_ID IS NULL
             AND c2.Is_Deleted = 0
         ) AS Unread_Count,
         (
@@ -151,10 +159,7 @@ export const getUserChatRooms = async (req, res) => {
     const formatted = rooms.map((room) => {
       if (room.Last_Message && room.Last_IV) {
         try {
-          room.Last_Message = decryptMessage(
-            room.Last_Message,
-            room.Last_IV
-          );
+          room.Last_Message = decryptMessage(room.Last_Message, room.Last_IV);
         } catch (err) {
           console.error("Preview decrypt failed:", err);
         }
@@ -206,7 +211,6 @@ export const sendMessage = async (req, res) => {
         .json({ message: "You are not a member of this room" });
     }
 
-    // 🔐 Encrypt message
     const { encryptedData, iv } = encryptMessage(message_text);
 
     const [result] = await connection.query(
@@ -252,6 +256,8 @@ export const getMessagesByRoom = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
+    const memberIdData = membership[0];
+
     const [messages] = await db.query(
       `SELECT
          c.Message_ID,
@@ -268,15 +274,15 @@ export const getMessagesByRoom = async (req, res) => {
          EXISTS(
            SELECT 1 FROM chats_seen_tbl cs
            WHERE cs.Message_ID = c.Message_ID 
-             AND cs.Member_ID != c.Sender_ID
+             AND cs.Member_ID = ?
            LIMIT 1
          ) AS Is_Seen
        FROM chats_tbl c
        JOIN student_tbl s ON c.Sender_ID = s.S_ID
-       WHERE c.Room_ID = ?
+       WHERE c.Room_ID = ? AND c.Is_Deleted = 0
        ORDER BY c.Sent_On ASC
        LIMIT ? OFFSET ?`,
-      [roomId, limit, offset],
+      [memberIdData.Member_ID, roomId, limit, offset],
     );
 
     const decryptedMessages = messages.map((msg) => {
@@ -284,10 +290,7 @@ export const getMessagesByRoom = async (req, res) => {
         try {
           return {
             ...msg,
-            Message_Text: decryptMessage(
-              msg.Message_Text,
-              msg.Encryption_IV
-            ),
+            Message_Text: decryptMessage(msg.Message_Text, msg.Encryption_IV),
           };
         } catch (err) {
           console.error("Decryption failed:", err);
@@ -327,6 +330,64 @@ export const deleteMessage = async (req, res) => {
     res.json({ message: "Message deleted" });
   } catch (error) {
     console.error("deleteMessage error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * POST /api/chats/mark-seen
+ */
+export const markMessagesSeen = async (req, res) => {
+  try {
+    const { room_id } = req.body;
+    const userId = req.user.Student_ID;
+
+    if (!room_id) {
+      return res.status(400).json({ message: "room_id is required" });
+    }
+
+    const [membership] = await db.query(
+      `SELECT Member_ID FROM chat_room_members_tbl
+       WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
+      [room_id, userId],
+    );
+
+    if (membership.length === 0) {
+      return res
+        .status(403)
+        .json({ message: "You are not a member of this room" });
+    }
+
+    const memberId = membership[0].Member_ID;
+
+    const [unread] = await db.query(
+      `SELECT c.Message_ID FROM chats_tbl c
+       LEFT JOIN chats_seen_tbl cs
+         ON c.Message_ID = cs.Message_ID AND cs.Member_ID = ?
+       WHERE c.Room_ID = ?
+         AND c.Sender_ID != ?
+         AND c.Is_Deleted = 0
+         AND cs.Seen_ID IS NULL`,
+      [memberId, room_id, userId],
+    );
+
+    if (unread.length > 0) {
+      const messageIds = unread.map((row) => row.Message_ID);
+      const placeholders = messageIds.map(() => `(?, ?)`).join(",");
+      const flatParams = [];
+      messageIds.forEach((msgId) => {
+        flatParams.push(msgId, memberId);
+      });
+
+      await db.query(
+        `INSERT IGNORE INTO chats_seen_tbl (Message_ID, Member_ID) VALUES ${placeholders}`,
+        flatParams,
+      );
+    }
+
+    res.json({ message: "Messages marked as seen", count: unread.length });
+  } catch (error) {
+    console.error("markMessagesSeen error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };

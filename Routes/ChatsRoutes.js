@@ -5,6 +5,7 @@ import {
   sendMessage,
   getMessagesByRoom,
   deleteMessage,
+  markMessagesSeen,
 } from "../controllers/ChatsController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -16,5 +17,6 @@ chatrouter.get("/my-rooms", authMiddleware, getUserChatRooms);
 chatrouter.post("/send", authMiddleware, sendMessage);
 chatrouter.get("/messages/:roomId", authMiddleware, getMessagesByRoom);
 chatrouter.put("/delete/:messageId", authMiddleware, deleteMessage);
+chatrouter.post("/mark-seen", authMiddleware, markMessagesSeen);
 
 export default chatrouter;
