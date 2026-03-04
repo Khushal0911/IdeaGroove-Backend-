@@ -1,12 +1,6 @@
 import { Server } from "socket.io";
 import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
 
-/**
- * Initialise Socket.io and attach all chat event handlers.
- * Call this once in server.js after app.listen().
- *
- * @param {import('http').Server} httpServer  – the Node http.Server instance
- */
 export const initSocket = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
@@ -16,53 +10,32 @@ export const initSocket = (httpServer) => {
     },
   });
 
-  // Map: studentId -> socketId  (track online users)
   const onlineUsers = new Map();
 
   io.on("connection", (socket) => {
     console.log(`[Socket] connected: ${socket.id}`);
 
-    /* ──────────────────────────────────────────────
-       USER ONLINE
-    ────────────────────────────────────────────── */
     socket.on("user:online", ({ studentId }) => {
       if (!studentId) return;
       onlineUsers.set(String(studentId), socket.id);
       socket.data.studentId = String(studentId);
-
-      // Tell everyone this user is online
       io.emit("user:status", { studentId, status: "online" });
-
-      // Send the newly connected user the full current online list
       const currentOnline = Array.from(onlineUsers.keys());
       socket.emit("users:online_list", { onlineUserIds: currentOnline });
     });
 
-    /* ──────────────────────────────────────────────
-       SUBSCRIBE TO ROOM (background subscription)
-       Client emits: { roomId }
-       Just joins the socket room — no history, no mark-seen.
-       Used to receive message:new for rooms not currently open.
-    ────────────────────────────────────────────── */
     socket.on("room:subscribe", ({ roomId }) => {
       if (!roomId) return;
       socket.join(String(roomId));
     });
 
-    /* ──────────────────────────────────────────────
-       JOIN ROOM
-       Client emits: { roomId, studentId }
-       Server responds with room message history
-    ────────────────────────────────────────────── */
     socket.on("room:join", async ({ roomId, studentId }) => {
       if (!roomId) return;
-
       socket.join(String(roomId));
 
       try {
         const { default: db } = await import("../config/db.js");
 
-        // Get Member_ID first (needed for proper seen tracking)
         let memberId = null;
         if (studentId) {
           const [memberData] = await db.query(
@@ -77,17 +50,14 @@ export const initSocket = (httpServer) => {
 
         const [messages] = await db.query(
           `SELECT
-             c.Message_ID,
-             c.Room_ID,
-             c.Sender_ID,
-             s.username  AS Sender_Username,
+             c.Message_ID, c.Room_ID, c.Sender_ID,
+             s.username AS Sender_Username,
              s.Profile_Pic AS Sender_Profile_Pic,
              c.Message_Type,
              c.Message_Text,
+             c.File_Path,
              c.Encryption_IV,
-             c.Sent_On,
-             c.Is_Edited,
-             c.Is_Deleted,
+             c.Sent_On, c.Is_Edited, c.Is_Deleted,
              EXISTS(
                SELECT 1 FROM chats_seen_tbl cs
                WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = ?
@@ -101,32 +71,32 @@ export const initSocket = (httpServer) => {
           [memberId, roomId],
         );
 
-        // Decrypt messages before sending to client
         const decryptedMessages = messages.map((msg) => {
-          if (
-            msg.Message_Text &&
-            msg.Encryption_IV &&
-            msg.Message_Type === "text"
-          ) {
-            try {
+          if (!msg.Encryption_IV) return msg;
+          try {
+            if (msg.Message_Type === "text" && msg.Message_Text) {
               return {
                 ...msg,
-                Message_Text: decryptMessage(
-                  msg.Message_Text,
-                  msg.Encryption_IV,
-                ),
+                Message_Text: decryptMessage(msg.Message_Text, msg.Encryption_IV),
               };
-            } catch (err) {
-              console.error("[Socket] room:join decryption error:", err);
-              return msg;
+            } else if (
+              (msg.Message_Type === "image" || msg.Message_Type === "file") &&
+              msg.File_Path
+            ) {
+              return {
+                ...msg,
+                // ✅ Message_Text holds filename (unencrypted) — leave it as-is
+                File_Path: decryptMessage(msg.File_Path, msg.Encryption_IV),
+              };
             }
+          } catch (err) {
+            console.error("[Socket] room:join decryption error:", err);
           }
           return msg;
         });
 
         socket.emit("room:history", { roomId, messages: decryptedMessages });
 
-        // Mark all unread messages in this room as seen by this member
         if (memberId) {
           const [unread] = await db.query(
             `SELECT c.Message_ID FROM chats_tbl c
@@ -146,7 +116,6 @@ export const initSocket = (httpServer) => {
             );
           }
 
-          // Notify room that messages were seen
           socket.to(String(roomId)).emit("message:seen_update", {
             roomId,
             seenBy: studentId,
@@ -157,17 +126,10 @@ export const initSocket = (httpServer) => {
       }
     });
 
-    /* ──────────────────────────────────────────────
-       LEAVE ROOM
-    ────────────────────────────────────────────── */
     socket.on("room:leave", ({ roomId }) => {
       if (roomId) socket.leave(String(roomId));
     });
 
-    /* ──────────────────────────────────────────────
-       SEND MESSAGE
-       Client emits: { roomId, message }
-    ────────────────────────────────────────────── */
     socket.on("message:send", async ({ roomId, message }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !message?.trim() || !studentId) return;
@@ -175,44 +137,31 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/db.js");
 
-        // Verify membership
         const [membership] = await db.query(
           `SELECT Member_ID FROM chat_room_members_tbl
            WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
           [roomId, studentId],
         );
-
         if (membership.length === 0) {
-          socket.emit("error", {
-            message: "You are not a member of this room",
-          });
+          socket.emit("error", { message: "You are not a member of this room" });
           return;
         }
 
-        // Encrypt the message
         const { encryptedData, iv } = encryptMessage(message.trim());
 
-        // Insert encrypted message
         const [result] = await db.query(
           `INSERT INTO chats_tbl (Room_ID, Sender_ID, Message_Type, Message_Text, Encryption_IV)
            VALUES (?, ?, 'text', ?, ?)`,
           [roomId, studentId, encryptedData, iv],
         );
 
-        // Fetch inserted message with sender info
         const [rows] = await db.query(
           `SELECT
-             c.Message_ID,
-             c.Room_ID,
-             c.Sender_ID,
-             s.username  AS Sender_Username,
+             c.Message_ID, c.Room_ID, c.Sender_ID,
+             s.username AS Sender_Username,
              s.Profile_Pic AS Sender_Profile_Pic,
-             c.Message_Type,
-             c.Message_Text,
-             c.Encryption_IV,
-             c.Sent_On,
-             c.Is_Edited,
-             c.Is_Deleted
+             c.Message_Type, c.Message_Text, c.File_Path,
+             c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted
            FROM chats_tbl c
            JOIN student_tbl s ON c.Sender_ID = s.S_ID
            WHERE c.Message_ID = ?`,
@@ -220,8 +169,6 @@ export const initSocket = (httpServer) => {
         );
 
         const newMessage = rows[0];
-
-        // Decrypt before broadcast
         if (newMessage.Message_Text && newMessage.Encryption_IV) {
           try {
             newMessage.Message_Text = decryptMessage(
@@ -233,7 +180,6 @@ export const initSocket = (httpServer) => {
           }
         }
 
-        // Broadcast to everyone in the room (including sender)
         io.to(String(roomId)).emit("message:new", {
           roomId: Number(roomId),
           message: newMessage,
@@ -244,10 +190,6 @@ export const initSocket = (httpServer) => {
       }
     });
 
-    /* ──────────────────────────────────────────────
-       LOAD MORE (pagination)
-       Client emits: { roomId, offset }
-    ────────────────────────────────────────────── */
     socket.on("message:load_more", async ({ roomId, offset = 0 }) => {
       try {
         const { default: db } = await import("../config/db.js");
@@ -257,8 +199,8 @@ export const initSocket = (httpServer) => {
              c.Message_ID, c.Room_ID, c.Sender_ID,
              s.username AS Sender_Username,
              s.Profile_Pic AS Sender_Profile_Pic,
-             c.Message_Type, c.Message_Text, c.Encryption_IV,
-             c.Sent_On, c.Is_Edited, c.Is_Deleted
+             c.Message_Type, c.Message_Text, c.File_Path,
+             c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted
            FROM chats_tbl c
            JOIN student_tbl s ON c.Sender_ID = s.S_ID
            WHERE c.Room_ID = ? AND c.Is_Deleted = 0
@@ -267,28 +209,25 @@ export const initSocket = (httpServer) => {
           [roomId, offset],
         );
 
-        // Decrypt messages before sending
         const decryptedMessages = messages.map((msg) => {
-          if (
-            msg.Message_Text &&
-            msg.Encryption_IV &&
-            msg.Message_Type === "text"
-          ) {
-            try {
+          if (!msg.Encryption_IV) return msg;
+          try {
+            if (msg.Message_Type === "text" && msg.Message_Text) {
               return {
                 ...msg,
-                Message_Text: decryptMessage(
-                  msg.Message_Text,
-                  msg.Encryption_IV,
-                ),
+                Message_Text: decryptMessage(msg.Message_Text, msg.Encryption_IV),
               };
-            } catch (err) {
-              console.error(
-                "[Socket] message:load_more decryption error:",
-                err,
-              );
-              return msg;
+            } else if (
+              (msg.Message_Type === "image" || msg.Message_Type === "file") &&
+              msg.File_Path
+            ) {
+              return {
+                ...msg,
+                File_Path: decryptMessage(msg.File_Path, msg.Encryption_IV),
+              };
             }
+          } catch (err) {
+            console.error("[Socket] message:load_more decryption error:", err);
           }
           return msg;
         });
@@ -299,10 +238,6 @@ export const initSocket = (httpServer) => {
       }
     });
 
-    /* ──────────────────────────────────────────────
-       MARK SEEN
-       Client emits: { roomId }
-    ────────────────────────────────────────────── */
     socket.on("message:seen", async ({ roomId }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !studentId) return;
@@ -310,13 +245,11 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/db.js");
 
-        // Get Member_ID first
         const [memberData] = await db.query(
           `SELECT Member_ID FROM chat_room_members_tbl
            WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
           [roomId, studentId],
         );
-
         if (memberData.length === 0) return;
 
         const memberId = memberData[0].Member_ID;
@@ -350,8 +283,10 @@ export const initSocket = (httpServer) => {
 
     /* ──────────────────────────────────────────────
        SEND FILE/IMAGE
+       ✅ Accepts fileName, stores it in Message_Text (unencrypted)
+       ✅ Encrypts fileUrl and stores in File_Path with IV
     ────────────────────────────────────────────── */
-    socket.on("message:send_file", async ({ roomId, fileUrl, messageType }) => {
+    socket.on("message:send_file", async ({ roomId, fileUrl, messageType, fileName }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !fileUrl || !studentId) return;
 
@@ -365,41 +300,65 @@ export const initSocket = (httpServer) => {
         );
         if (membership.length === 0) return;
 
-        // File messages store URL as Message_Text, no encryption needed
+        // Encrypt only the file URL
+        const { encryptedData, iv } = encryptMessage(fileUrl);
+
         const [result] = await db.query(
-          `INSERT INTO chats_tbl (Room_ID, Sender_ID, Message_Type, Message_Text)
-           VALUES (?, ?, ?, ?)`,
-          [roomId, studentId, messageType, fileUrl],
+          `INSERT INTO chats_tbl
+            (Room_ID, Sender_ID, Message_Type, Message_Text, File_Path, Encryption_IV)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            roomId,
+            studentId,
+            messageType,
+            fileName || null, // ✅ original filename stored unencrypted
+            encryptedData,    // ✅ encrypted Cloudinary URL
+            iv,               // ✅ AES IV
+          ],
         );
 
         const [rows] = await db.query(
-          `SELECT c.Message_ID, c.Room_ID, c.Sender_ID,
-              s.username AS Sender_Username, s.Profile_Pic AS Sender_Profile_Pic,
-              c.Message_Type, c.Message_Text, c.Sent_On, c.Is_Edited, c.Is_Deleted
+          `SELECT
+             c.Message_ID, c.Room_ID, c.Sender_ID,
+             s.username AS Sender_Username,
+             s.Profile_Pic AS Sender_Profile_Pic,
+             c.Message_Type, c.Message_Text, c.File_Path,
+             c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted
            FROM chats_tbl c
            JOIN student_tbl s ON c.Sender_ID = s.S_ID
            WHERE c.Message_ID = ?`,
           [result.insertId],
         );
 
+        const newMessage = rows[0];
+
+        // Decrypt File_Path for broadcast; Message_Text (filename) stays plain
+        if (newMessage.File_Path && newMessage.Encryption_IV) {
+          try {
+            newMessage.File_Path = decryptMessage(
+              newMessage.File_Path,
+              newMessage.Encryption_IV,
+            );
+          } catch (err) {
+            console.error("[Socket] send_file decryption error:", err);
+          }
+        }
+
         io.to(String(roomId)).emit("message:new", {
           roomId: Number(roomId),
-          message: rows[0],
+          message: newMessage,
         });
       } catch (err) {
         console.error("[Socket] message:send_file error:", err);
       }
     });
 
-    /* ── EDIT MESSAGE ──────────────────────────────────────────── */
     socket.on("message:edit", async ({ roomId, messageId, newText }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !messageId || !newText?.trim() || !studentId) return;
 
       try {
         const { default: db } = await import("../config/db.js");
-
-        // Re-encrypt the edited text with a new IV
         const { encryptedData, iv } = encryptMessage(newText.trim());
 
         const [result] = await db.query(
@@ -420,7 +379,6 @@ export const initSocket = (httpServer) => {
       }
     });
 
-    /* ── DELETE MESSAGE ────────────────────────────────────────── */
     socket.on("message:delete", async ({ roomId, messageId }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !messageId || !studentId) return;
@@ -445,33 +403,18 @@ export const initSocket = (httpServer) => {
       }
     });
 
-    /* ──────────────────────────────────────────────
-       TYPING INDICATORS
-    ────────────────────────────────────────────── */
     socket.on("typing:start", ({ roomId }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !studentId) return;
-      socket.to(String(roomId)).emit("typing:update", {
-        roomId,
-        studentId,
-        isTyping: true,
-      });
+      socket.to(String(roomId)).emit("typing:update", { roomId, studentId, isTyping: true });
     });
 
     socket.on("typing:stop", ({ roomId }) => {
       const studentId = socket.data.studentId;
       if (!roomId || !studentId) return;
-      socket.to(String(roomId)).emit("typing:update", {
-        roomId,
-        studentId,
-        isTyping: false,
-      });
+      socket.to(String(roomId)).emit("typing:update", { roomId, studentId, isTyping: false });
     });
 
-    /* ──────────────────────────────────────────────
-       UNREAD COUNTS FOR A LIST OF ROOMS
-       Client emits: { roomIds: number[] }
-    ────────────────────────────────────────────── */
     socket.on("rooms:unread_counts", async ({ roomIds }) => {
       const studentId = socket.data.studentId;
       if (!studentId || !roomIds?.length) return;
@@ -479,7 +422,6 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/db.js");
 
-        // Get Member_IDs for all rooms at once
         const [memberData] = await db.query(
           `SELECT Room_ID, Member_ID FROM chat_room_members_tbl
            WHERE Student_ID = ? AND Is_Active = 1`,
@@ -487,19 +429,12 @@ export const initSocket = (httpServer) => {
         );
 
         const memberMap = {};
-        memberData.forEach((m) => {
-          memberMap[m.Room_ID] = m.Member_ID;
-        });
+        memberData.forEach((m) => { memberMap[m.Room_ID] = m.Member_ID; });
 
         const counts = {};
-
         for (const roomId of roomIds) {
           const memberId = memberMap[roomId];
-          if (!memberId) {
-            counts[roomId] = 0;
-            continue;
-          }
-
+          if (!memberId) { counts[roomId] = 0; continue; }
           const [rows] = await db.query(
             `SELECT COUNT(*) AS cnt
              FROM chats_tbl c
@@ -520,9 +455,6 @@ export const initSocket = (httpServer) => {
       }
     });
 
-    /* ──────────────────────────────────────────────
-       DISCONNECT
-    ────────────────────────────────────────────── */
     socket.on("disconnect", () => {
       const studentId = socket.data.studentId;
       if (studentId) {
