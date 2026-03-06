@@ -109,6 +109,25 @@ export const getUserChatRooms = async (req, res) => {
           WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Message_At,
+        (
+          SELECT Sender_ID FROM chats_tbl
+          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          ORDER BY Sent_On DESC LIMIT 1
+        ) AS Last_Sender_ID,
+        (
+          SELECT s3.name
+          FROM chats_tbl c3
+          JOIN student_tbl s3 ON c3.Sender_ID = s3.S_ID
+          WHERE c3.Room_ID = r.Room_ID AND c3.Is_Deleted = 0
+          ORDER BY c3.Sent_On DESC LIMIT 1
+        ) AS Last_Sender_Name,
+        (
+          SELECT s3.username
+          FROM chats_tbl c3
+          JOIN student_tbl s3 ON c3.Sender_ID = s3.S_ID
+          WHERE c3.Room_ID = r.Room_ID AND c3.Is_Deleted = 0
+          ORDER BY c3.Sent_On DESC LIMIT 1
+        ) AS Last_Sender_Username,
         /* ✅ FIX: Unread_Count was missing — now properly counted per member */
         (
           SELECT COUNT(*)
@@ -117,7 +136,7 @@ export const getUserChatRooms = async (req, res) => {
             ON c2.Message_ID = cs2.Message_ID
             AND cs2.Member_ID = m.Member_ID
           WHERE c2.Room_ID = r.Room_ID
-            AND c2.Sender_ID != ?
+            AND c2.Sender_ID != m.Student_ID
             AND c2.Is_Deleted = 0
             AND cs2.Seen_ID IS NULL
         ) AS Unread_Count,
@@ -135,11 +154,15 @@ export const getUserChatRooms = async (req, res) => {
           WHERE m2.Room_ID = r.Room_ID AND m2.Is_Active = 1
         ) AS Members
       FROM chat_rooms_tbl r
-      JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID AND m.Student_ID = ?
-      WHERE r.Is_Active = 1 AND m.Is_Active = 1
-      GROUP BY r.Room_ID
+      JOIN (
+        SELECT Room_ID, Student_ID, MAX(Member_ID) AS Member_ID
+        FROM chat_room_members_tbl
+        WHERE Student_ID = ? AND Is_Active = 1
+        GROUP BY Room_ID, Student_ID
+      ) m ON r.Room_ID = m.Room_ID
+      WHERE r.Is_Active = 1
       ORDER BY Last_Message_At DESC`,
-      [userId, userId],
+      [userId],
     );
 
     const formatted = rooms.map((room) => {
@@ -248,7 +271,7 @@ export const getMessagesByRoom = async (req, res) => {
     }
 
     const [messages] = await db.query(
-      `SELECT c.*, s.username AS Sender_Username, s.Profile_Pic AS Sender_Profile_Pic
+      `SELECT c.*, s.username AS Sender_Username, s.name AS Sender_Name, s.Profile_Pic AS Sender_Profile_Pic
        FROM chats_tbl c
        JOIN student_tbl s ON c.Sender_ID = s.S_ID
        WHERE c.Room_ID = ?
