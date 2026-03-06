@@ -52,25 +52,30 @@ export const initSocket = (httpServer) => {
         // included in history. Both sender and receiver see the
         // "Message deleted" placeholder rendered by ChatBody.
         const [messages] = await db.query(
-          `SELECT
-             c.Message_ID, c.Room_ID, c.Sender_ID,
-             s.username AS Sender_Username,
-             s.Profile_Pic AS Sender_Profile_Pic,
-             c.Message_Type,
-             c.Message_Text,
-             c.File_Path,
-             c.Encryption_IV,
-             c.Sent_On, c.Is_Edited, c.Is_Deleted,
-             EXISTS(
-               SELECT 1 FROM chats_seen_tbl cs
-               WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = ?
-               LIMIT 1
-             ) AS Is_Seen
-           FROM chats_tbl c
-           JOIN student_tbl s ON c.Sender_ID = s.S_ID
-           WHERE c.Room_ID = ?
-           ORDER BY c.Sent_On ASC
-           LIMIT 50`,
+          `SELECT *
+           FROM (
+             SELECT
+               c.Message_ID, c.Room_ID, c.Sender_ID,
+               s.username AS Sender_Username,
+               s.name AS Sender_Name,
+               s.Profile_Pic AS Sender_Profile_Pic,
+               c.Message_Type,
+               c.Message_Text,
+               c.File_Path,
+               c.Encryption_IV,
+               c.Sent_On, c.Is_Edited, c.Is_Deleted,
+               EXISTS(
+                 SELECT 1 FROM chats_seen_tbl cs
+                 WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = ?
+                 LIMIT 1
+               ) AS Is_Seen
+             FROM chats_tbl c
+             JOIN student_tbl s ON c.Sender_ID = s.S_ID
+             WHERE c.Room_ID = ?
+             ORDER BY c.Sent_On DESC
+             LIMIT 50
+           ) recent_messages
+           ORDER BY recent_messages.Sent_On ASC`,
           [memberId, roomId],
         );
 
@@ -171,6 +176,7 @@ export const initSocket = (httpServer) => {
           `SELECT
              c.Message_ID, c.Room_ID, c.Sender_ID,
              s.username AS Sender_Username,
+             s.name AS Sender_Name,
              s.Profile_Pic AS Sender_Profile_Pic,
              c.Message_Type, c.Message_Text, c.File_Path,
              c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted
@@ -211,6 +217,7 @@ export const initSocket = (httpServer) => {
           `SELECT
              c.Message_ID, c.Room_ID, c.Sender_ID,
              s.username AS Sender_Username,
+             s.name AS Sender_Name,
              s.Profile_Pic AS Sender_Profile_Pic,
              c.Message_Type, c.Message_Text, c.File_Path,
              c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted
@@ -337,6 +344,7 @@ export const initSocket = (httpServer) => {
             `SELECT
              c.Message_ID, c.Room_ID, c.Sender_ID,
              s.username AS Sender_Username,
+             s.name AS Sender_Name,
              s.Profile_Pic AS Sender_Profile_Pic,
              c.Message_Type, c.Message_Text, c.File_Path,
              c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted
@@ -379,7 +387,10 @@ export const initSocket = (httpServer) => {
 
         const [result] = await db.query(
           `UPDATE chats_tbl SET Message_Text = ?, Encryption_IV = ?, Is_Edited = 1
-           WHERE Message_ID = ? AND Sender_ID = ? AND Is_Deleted = 0`,
+           WHERE Message_ID = ?
+             AND Sender_ID = ?
+             AND Is_Deleted = 0
+             AND Sent_On >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)`,
           [encryptedData, iv, messageId, studentId],
         );
 
@@ -392,6 +403,10 @@ export const initSocket = (httpServer) => {
             roomId: Number(roomId),
             messageId,
             newText: newText.trim(),
+          });
+        } else {
+          socket.emit("error", {
+            message: "Messages can only be edited within 5 minutes",
           });
         }
       } catch (err) {
