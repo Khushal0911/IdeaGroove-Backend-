@@ -47,15 +47,19 @@ app.use(
 );
 
 app.use((req, res, next) => {
-  if (req.session && !req.session.regenerate) {
-    req.session.regenerate = (cb) => {
-      cb();
-    };
-  }
-  if (req.session && !req.session.save) {
-    req.session.save = (cb) => {
-      cb();
-    };
+  if (req.session) {
+    const originalSession = req.session;
+    if (!req.session.regenerate) {
+      req.session.regenerate = (cb) => {
+        req.session = originalSession;
+        cb();
+      };
+    }
+    if (!req.session.save) {
+      req.session.save = (cb) => {
+        cb();
+      };
+    }
   }
   next();
 });

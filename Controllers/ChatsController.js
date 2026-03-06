@@ -86,50 +86,89 @@ export const getUserChatRooms = async (req, res) => {
 
     const [rooms] = await db.query(
       `SELECT
-        r.Room_ID, r.Room_Type, r.Room_Name,
-        (SELECT Message_Text FROM chats_tbl WHERE Room_ID = r.Room_ID AND Is_Deleted = 0 ORDER BY Sent_On DESC LIMIT 1) AS Last_Message,
-        (SELECT Message_Type FROM chats_tbl WHERE Room_ID = r.Room_ID AND Is_Deleted = 0 ORDER BY Sent_On DESC LIMIT 1) AS Last_Type,
-        (SELECT Encryption_IV FROM chats_tbl WHERE Room_ID = r.Room_ID AND Is_Deleted = 0 ORDER BY Sent_On DESC LIMIT 1) AS Last_IV,
-        (SELECT Sent_On FROM chats_tbl WHERE Room_ID = r.Room_ID AND Is_Deleted = 0 ORDER BY Sent_On DESC LIMIT 1) AS Last_Message_At,
-        /* ... rest of your existing subqueries for Unread_Count and Members ... */
+        r.Room_ID,
+        r.Room_Type,
+        r.Room_Name,
         (
-          SELECT JSON_ARRAYAGG(JSON_OBJECT('Student_ID', s2.S_ID, 'username', s2.username, 'Profile_Pic', s2.Profile_Pic))
-          FROM chat_room_members_tbl m2 JOIN student_tbl s2 ON m2.Student_ID = s2.S_ID
+          SELECT Message_Text FROM chats_tbl
+          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          ORDER BY Sent_On DESC LIMIT 1
+        ) AS Last_Message,
+        (
+          SELECT Message_Type FROM chats_tbl
+          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          ORDER BY Sent_On DESC LIMIT 1
+        ) AS Last_Type,
+        (
+          SELECT Encryption_IV FROM chats_tbl
+          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          ORDER BY Sent_On DESC LIMIT 1
+        ) AS Last_IV,
+        (
+          SELECT Sent_On FROM chats_tbl
+          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          ORDER BY Sent_On DESC LIMIT 1
+        ) AS Last_Message_At,
+        /* ✅ FIX: Unread_Count was missing — now properly counted per member */
+        (
+          SELECT COUNT(*)
+          FROM chats_tbl c2
+          LEFT JOIN chats_seen_tbl cs2
+            ON c2.Message_ID = cs2.Message_ID
+            AND cs2.Member_ID = m.Member_ID
+          WHERE c2.Room_ID = r.Room_ID
+            AND c2.Sender_ID != ?
+            AND c2.Is_Deleted = 0
+            AND cs2.Seen_ID IS NULL
+        ) AS Unread_Count,
+        (
+          SELECT JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'Student_ID', s2.S_ID,
+              'username', s2.username,
+              'name', s2.name,
+              'Profile_Pic', s2.Profile_Pic
+            )
+          )
+          FROM chat_room_members_tbl m2
+          JOIN student_tbl s2 ON m2.Student_ID = s2.S_ID
           WHERE m2.Room_ID = r.Room_ID AND m2.Is_Active = 1
         ) AS Members
       FROM chat_rooms_tbl r
-      JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID
-      WHERE m.Student_ID = ? AND r.Is_Active = 1 AND m.Is_Active = 1
-      GROUP BY r.Room_ID ORDER BY Last_Message_At DESC`,
-      [userId]
+      JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID AND m.Student_ID = ?
+      WHERE r.Is_Active = 1 AND m.Is_Active = 1
+      GROUP BY r.Room_ID
+      ORDER BY Last_Message_At DESC`,
+      [userId, userId],
     );
 
     const formatted = rooms.map((room) => {
       if (room.Last_Message && room.Last_IV) {
         try {
           const decrypted = decryptMessage(room.Last_Message, room.Last_IV);
-          // If it's an image, you might want the preview to say "Sent an image" 
-          // instead of the long URL string
-          room.Last_Message = room.Last_Type === 'text' ? decrypted : `Sent a ${room.Last_Type}`;
-          room.Raw_Path = room.Last_Type !== 'text' ? decrypted : null;
+          room.Last_Message =
+            room.Last_Type === "text" ? decrypted : `Sent a ${room.Last_Type}`;
+          room.Raw_Path = room.Last_Type !== "text" ? decrypted : null;
         } catch (err) {
           console.error("Decrypt failed:", err);
         }
       }
-      return { ...room, Members: typeof room.Members === "string" ? JSON.parse(room.Members) : room.Members || [] };
+      return {
+        ...room,
+        Members:
+          typeof room.Members === "string"
+            ? JSON.parse(room.Members)
+            : room.Members || [],
+      };
     });
 
     res.json({ status: true, data: formatted });
   } catch (error) {
+    console.error("getUserChatRooms error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
-/**
- * POST /api/chats/send
- */
-/**
- * POST /api/chats/send
- */
+
 /**
  * POST /api/chats/send
  */
@@ -145,7 +184,6 @@ export const sendMessage = async (req, res) => {
 
     await connection.beginTransaction();
 
-    // Verify membership
     const [membership] = await connection.query(
       `SELECT Member_ID FROM chat_room_members_tbl
        WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
@@ -157,29 +195,27 @@ export const sendMessage = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // MANDATORY: Encrypt the content (text or file URL)
     const { encryptedData, iv } = encryptMessage(message_text);
+    const isFile = message_type !== "text";
 
-    // According to your Data Dictionary:
-    // If NOT text, store in File_Path. If text, store in Message_Text.
-    const isFile = message_type !== 'text';
-    
     const [result] = await connection.query(
-      `INSERT INTO chats_tbl 
+      `INSERT INTO chats_tbl
         (Room_ID, Sender_ID, Message_Type, Message_Text, File_Path, Encryption_IV)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [
-        room_id, 
-        senderId, 
-        message_type, 
-        isFile ? null : encryptedData, // Message_Text (NULL for files)
-        isFile ? encryptedData : null, // File_Path (Encrypted address for files)
-        iv                             // Encryption_IV (No longer NULL)
+        room_id,
+        senderId,
+        message_type,
+        isFile ? null : encryptedData,
+        isFile ? encryptedData : null,
+        iv,
       ],
     );
 
     await connection.commit();
-    res.status(201).json({ message: "Message sent", messageId: result.insertId });
+    res
+      .status(201)
+      .json({ message: "Message sent", messageId: result.insertId });
   } catch (error) {
     await connection.rollback();
     console.error("sendMessage error:", error);
@@ -188,41 +224,57 @@ export const sendMessage = async (req, res) => {
     connection.release();
   }
 };
+
 /**
  * GET /api/chats/messages/:roomId
+ *
+ * ✅ FIX: Removed `AND c.Is_Deleted = 0` filter so deleted messages are
+ * returned to both sender and receiver. ChatBody renders the
+ * "Message deleted" placeholder when Is_Deleted = 1.
  */
 export const getMessagesByRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
     const userId = req.user.Student_ID;
 
-    // ... (Your existing membership check logic) ...
+    const [membership] = await db.query(
+      `SELECT Member_ID FROM chat_room_members_tbl
+       WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
+      [roomId, userId],
+    );
+
+    if (membership.length === 0) {
+      return res.status(403).json({ message: "Access denied" });
+    }
 
     const [messages] = await db.query(
       `SELECT c.*, s.username AS Sender_Username, s.Profile_Pic AS Sender_Profile_Pic
        FROM chats_tbl c
        JOIN student_tbl s ON c.Sender_ID = s.S_ID
-       WHERE c.Room_ID = ? AND c.Is_Deleted = 0
+       WHERE c.Room_ID = ?
        ORDER BY c.Sent_On ASC`,
-      [roomId]
+      [roomId],
     );
 
     const decryptedMessages = messages.map((msg) => {
-      // Check which field has the encrypted data based on type
-      const encryptedContent = msg.Message_Type === 'text' ? msg.Message_Text : msg.File_Path;
+      // Deleted messages: nothing to decrypt, return as-is
+      if (msg.Is_Deleted) return msg;
+
+      const encryptedContent =
+        msg.Message_Type === "text" ? msg.Message_Text : msg.File_Path;
 
       if (encryptedContent && msg.Encryption_IV) {
         try {
           const decrypted = decryptMessage(encryptedContent, msg.Encryption_IV);
           return {
             ...msg,
-            // Restore the actual content to the relevant fields for the frontend
-            Message_Text: msg.Message_Type === 'text' ? decrypted : null,
-            File_Path: msg.Message_Type !== 'text' ? decrypted : null
+            Message_Text:
+              msg.Message_Type === "text" ? decrypted : msg.Message_Text,
+            File_Path: msg.Message_Type !== "text" ? decrypted : null,
           };
         } catch (err) {
           console.error("Decryption failed for Message ID:", msg.Message_ID);
-          return msg; 
+          return msg;
         }
       }
       return msg;
@@ -230,6 +282,7 @@ export const getMessagesByRoom = async (req, res) => {
 
     res.json({ status: true, data: decryptedMessages });
   } catch (error) {
+    console.error("getMessagesByRoom error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
