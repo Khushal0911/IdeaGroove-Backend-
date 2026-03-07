@@ -214,3 +214,86 @@ export const sendComplaintStatusEmail = async ({
     ),
   });
 };
+
+const getStudentBlockTemplate = (studentName, reason) => `
+  <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
+    <div style="background: #166534; padding: 24px 32px;">
+      <h1 style="color: white; margin: 0; font-size: 20px;">IdeaGroove</h1>
+      <p style="color: #86efac; margin: 4px 0 0; font-size: 13px;">Account Notice</p>
+    </div>
+    <div style="padding: 32px;">
+      <p style="color: #374151; font-size: 15px;">Hi <strong>${studentName}</strong>,</p>
+      <p style="color: #374151; font-size: 14px; line-height: 1.6;">
+        Your <strong>IdeaGroove account</strong> has been
+        <span style="color: #dc2626; font-weight: bold;">suspended</span>
+        by our admin team.
+      </p>
+      ${
+        reason
+          ? `
+      <div style="background: #fef2f2; border-left: 4px solid #dc2626; padding: 12px 16px; border-radius: 4px; margin: 16px 0;">
+        <p style="margin: 0; color: #991b1b; font-size: 13px;"><strong>Reason:</strong> ${reason}</p>
+      </div>`
+          : ""
+      }
+      <p style="color: #6b7280; font-size: 13px; line-height: 1.6;">
+        You will not be able to log in or access the platform until your account is reinstated.
+        If you believe this was a mistake, please contact our support team.
+      </p>
+      <p style="color: #374151; font-size: 14px; margin-top: 24px;">— IdeaGroove Admin Team</p>
+    </div>
+    <div style="background: #f9fafb; padding: 16px 32px; border-top: 1px solid #e5e7eb;">
+      <p style="margin: 0; color: #9ca3af; font-size: 11px; text-align: center;">
+        This is an automated message. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+`;
+
+const getStudentUnblockTemplate = (studentName) => `
+  <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: auto; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;">
+    <div style="background: #166534; padding: 24px 32px;">
+      <h1 style="color: white; margin: 0; font-size: 20px;">IdeaGroove</h1>
+      <p style="color: #86efac; margin: 4px 0 0; font-size: 13px;">Account Reinstated</p>
+    </div>
+    <div style="padding: 32px;">
+      <p style="color: #374151; font-size: 15px;">Hi <strong>${studentName}</strong>,</p>
+      <p style="color: #374151; font-size: 14px; line-height: 1.6;">
+        Great news! Your <strong>IdeaGroove account</strong> has been
+        <span style="color: #16a34a; font-weight: bold;">reinstated</span>.
+        You can now log in and access the platform normally.
+      </p>
+      <p style="color: #6b7280; font-size: 13px; line-height: 1.6;">
+        Thank you for being a part of IdeaGroove. We look forward to seeing your contributions!
+      </p>
+      <p style="color: #374151; font-size: 14px; margin-top: 24px;">— IdeaGroove Admin Team</p>
+    </div>
+    <div style="background: #f9fafb; padding: 16px 32px; border-top: 1px solid #e5e7eb;">
+      <p style="margin: 0; color: #9ca3af; font-size: 11px; text-align: center;">
+        This is an automated message. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+`;
+
+export const sendStudentBlockEmail = async ({
+  toEmail,
+  studentName,
+  reason,
+}) => {
+  await transporter.sendMail({
+    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
+    to: toEmail,
+    subject: `Your IdeaGroove account has been suspended`,
+    html: getStudentBlockTemplate(studentName, reason),
+  });
+};
+
+export const sendStudentUnblockEmail = async ({ toEmail, studentName }) => {
+  await transporter.sendMail({
+    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
+    to: toEmail,
+    subject: `Your IdeaGroove account has been reinstated`,
+    html: getStudentUnblockTemplate(studentName),
+  });
+};
