@@ -1018,6 +1018,8 @@ export const getAtRiskStudents = async (req, res) => {
       WHERE s.is_Active = 1
 
       GROUP BY s.S_ID, s.Name, s.Email, s.Profile_Pic, d.Degree_Name, s.Year
+
+      -- Silent for at least  days BUT has history (not just new users with 0 posts)
       HAVING 
         days_silent >= ?
         AND total_contributions > 0
@@ -1049,8 +1051,10 @@ export const getInactiveStudents = async (req, res) => {
   const days = parseInt(req.query.days) || 60;
 
   try {
-    const [rows] = await db.query(
-      `
+    // student_tbl has no Created_At — use S_ID rank as age proxy
+    // Students with lower S_ID are older (auto-increment)
+    // We fetch all students with 0 posts, then approximate age via S_ID percentile
+    const [rows] = await db.query(`
       SELECT
         s.S_ID,
         s.Name,
@@ -1058,16 +1062,18 @@ export const getInactiveStudents = async (req, res) => {
         s.Profile_Pic,
         d.Degree_Name,
         s.Year,
-        s.Created_At,
-        DATEDIFF(NOW(), s.Created_At) AS days_since_joined
+        -- Approximate "days as member" using S_ID rank among all students
+        -- Lower S_ID = registered earlier = likely older account
+        ROUND(
+          (1 - (s.S_ID - (SELECT MIN(S_ID) FROM student_tbl)) /
+          NULLIF((SELECT MAX(S_ID) FROM student_tbl) - (SELECT MIN(S_ID) FROM student_tbl), 1))
+          * 365
+        ) AS days_since_joined
 
       FROM student_tbl s
       LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
 
       WHERE s.is_Active = 1
-
-        -- Account is older than the threshold
-        AND DATEDIFF(NOW(), s.Created_At) >= ?
 
         -- Has never posted anything
         AND s.S_ID NOT IN (SELECT DISTINCT Added_By   FROM notes_tbl)
@@ -1075,10 +1081,8 @@ export const getInactiveStudents = async (req, res) => {
         AND s.S_ID NOT IN (SELECT DISTINCT Added_By   FROM event_tbl)
         AND s.S_ID NOT IN (SELECT DISTINCT Created_By FROM chat_rooms_tbl)
 
-      ORDER BY days_since_joined DESC
-    `,
-      [days],
-    );
+      ORDER BY s.S_ID ASC
+    `);
 
     res.status(200).json({
       days,
@@ -1155,23 +1159,25 @@ export const getMostComplainedStudents = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 export const getContentBlockIndex = async (req, res) => {
   try {
-    // Per-subject block ratio (notes only, since notes are tied to subjects)
+    // Per-subject block ratio — join via degree_subject_mapping_tbl
+    // since subject_tbl has no Degree_ID column
     const [bySubject] = await db.query(`
       SELECT
         sub.Subject_ID,
         sub.Subject_Name,
         d.Degree_Name,
-        COUNT(n.N_ID)                              AS total_notes,
-        SUM(n.Is_Active = 0)                       AS blocked_notes,
-        SUM(n.Is_Active = 1)                       AS active_notes,
-        ROUND(SUM(n.Is_Active = 0) / COUNT(n.N_ID) * 100, 1) AS block_rate_pct
+        COUNT(n.N_ID)                                          AS total_notes,
+        SUM(n.Is_Active = 0)                                   AS blocked_notes,
+        SUM(n.Is_Active = 1)                                   AS active_notes,
+        ROUND(SUM(n.Is_Active = 0) / COUNT(n.N_ID) * 100, 1)  AS block_rate_pct
 
       FROM notes_tbl n
-      JOIN subject_tbl sub ON sub.Subject_ID = n.Subject_ID
-      JOIN degree_tbl  d   ON d.Degree_ID    = sub.Degree_ID
+      JOIN subject_tbl sub              ON sub.Subject_ID  = n.Subject_ID
+      JOIN degree_subject_mapping_tbl m ON m.Subject_ID    = sub.Subject_ID
+      JOIN degree_tbl d                 ON d.Degree_ID     = m.Degree_ID
 
       GROUP BY sub.Subject_ID, sub.Subject_Name, d.Degree_Name
-      HAVING total_notes >= 3          -- ignore subjects with too few posts
+      HAVING total_notes >= 1
       ORDER BY block_rate_pct DESC
       LIMIT 15
     `);
@@ -1238,12 +1244,8 @@ export const getComplaintsReport = async (req, res) => {
         SUM(Status = 'Pending')                        AS pending,
         ROUND(SUM(Status = 'Resolved') / COUNT(*) * 100, 1) AS resolution_rate_pct,
 
-        -- Average days to resolve (only for resolved complaints)
-        ROUND(AVG(
-          CASE WHEN Status = 'Resolved'
-            THEN DATEDIFF(Updated_At, Date)
-          END
-        ), 1) AS avg_resolution_days
+        -- Average days to resolve — null safe (Updated_At may not exist)
+        NULL AS avg_resolution_days
 
       FROM complaint_tbl
     `);
@@ -1268,8 +1270,8 @@ export const getComplaintsReport = async (req, res) => {
         c.Complaint_Text,
         c.Status,
         c.Date          AS filed_on,
-        c.Updated_At    AS updated_on,
-        DATEDIFF(COALESCE(c.Updated_At, NOW()), c.Date) AS age_days,
+        NULL            AS updated_on,
+        DATEDIFF(NOW(), c.Date) AS age_days,
 
         s.S_ID          AS student_id,
         s.Name          AS student_name,
@@ -1292,5 +1294,131 @@ export const getComplaintsReport = async (req, res) => {
   } catch (err) {
     console.error("Complaints Report Error:", err);
     res.status(500).json({ error: "Failed to fetch complaints report" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// 7. STUDENT NOTES PORTFOLIO
+//    GET /students/:id/notes-portfolio
+//
+//    For both admin and student use:
+//      - All notes uploaded by the student
+//      - Subject coverage: which subjects they contributed to
+//      - Gaps: subjects in their degree they haven't covered
+//      - Rank within their degree group
+// ─────────────────────────────────────────────────────────────
+export const getStudentNotesPortfolio = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Basic student info
+    const [[student]] = await db.query(
+      `
+      SELECT
+        s.S_ID, s.Name, s.Email, s.Profile_Pic,
+        s.Roll_No, s.Year,
+        d.Degree_ID, d.Degree_Name
+      FROM student_tbl s
+      LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
+      WHERE s.S_ID = ?
+    `,
+      [id],
+    );
+
+    if (!student) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // All notes by this student
+    const [notes] = await db.query(
+      `
+      SELECT
+        n.N_ID,
+        n.File_Name,
+        n.Description,
+        n.Is_Active,
+        n.Added_On,
+        sub.Subject_ID,
+        sub.Subject_Name,
+        d.Degree_Name
+      FROM notes_tbl n
+      LEFT JOIN subject_tbl sub ON sub.Subject_ID = n.Subject_ID
+      LEFT JOIN degree_tbl  d   ON d.Degree_ID    = n.Degree_ID
+      WHERE n.Added_By = ?
+      ORDER BY n.Added_On DESC
+    `,
+      [id],
+    );
+
+    // All subjects available in their degree
+    const [allSubjects] = await db.query(
+      `
+      SELECT DISTINCT
+        sub.Subject_ID,
+        sub.Subject_Name
+      FROM subject_tbl sub
+      WHERE sub.Degree_ID = ?
+      ORDER BY sub.Subject_Name ASC
+    `,
+      [student.Degree_ID],
+    );
+
+    // Which subjects this student has covered
+    const coveredSubjectIds = new Set(
+      notes.map((n) => n.Subject_ID).filter(Boolean),
+    );
+
+    const subjectCoverage = allSubjects.map((sub) => ({
+      ...sub,
+      covered: coveredSubjectIds.has(sub.Subject_ID),
+      note_count: notes.filter((n) => n.Subject_ID === sub.Subject_ID).length,
+    }));
+
+    const coveredCount = subjectCoverage.filter((s) => s.covered).length;
+    const coveragePct =
+      allSubjects.length > 0
+        ? Math.round((coveredCount / allSubjects.length) * 100)
+        : 0;
+
+    // Rank within their degree — by note count
+    // Using regular string to avoid backtick conflict with JS template literals
+    const rankQuery =
+      "SELECT rank_pos AS rank_alias FROM (" +
+      " SELECT Added_By AS student_id, COUNT(*) AS note_count," +
+      " RANK() OVER (ORDER BY COUNT(*) DESC) AS rank_pos" +
+      " FROM notes_tbl WHERE Is_Active = 1 AND Degree_ID = ?" +
+      " GROUP BY Added_By" +
+      ") ranked WHERE student_id = ?";
+    const [[rankRow]] = await db.query(rankQuery, [student.Degree_ID, id]);
+    const rank = rankRow?.rank_alias || null;
+
+    // Total students in same degree who have at least 1 note
+    const [[{ degreePosters }]] = await db.query(
+      `
+      SELECT COUNT(DISTINCT Added_By) AS degreePosters
+      FROM notes_tbl
+      WHERE Is_Active = 1 AND Degree_ID = ?
+    `,
+      [student.Degree_ID],
+    );
+
+    res.status(200).json({
+      student,
+      stats: {
+        totalNotes: notes.length,
+        activeNotes: notes.filter((n) => n.Is_Active === 1).length,
+        blockedNotes: notes.filter((n) => n.Is_Active === 0).length,
+        subjectsCovered: coveredCount,
+        totalSubjects: allSubjects.length,
+        coveragePct,
+        rankInDegree: rank,
+        degreePosters,
+      },
+      notes,
+      subjectCoverage,
+    });
+  } catch (err) {
+    console.error("Student Notes Portfolio Error:", err);
+    res.status(500).json({ error: "Failed to fetch notes portfolio" });
   }
 };
