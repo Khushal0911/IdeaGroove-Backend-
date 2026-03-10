@@ -339,8 +339,10 @@ export const getStudentActivities = async (req, res) => {
     switch (type) {
       case "Notes":
         query = `
-          SELECT N_ID as id, Description as title, Added_On as date
-          FROM notes_tbl
+          SELECT n.N_ID as id, n.File_Name as title, n.Added_On as date, d.Degree_Name as course, s.Subject_Name as type
+          FROM notes_tbl n
+          LEFT JOIN degree_tbl d ON d.Degree_ID = n.Degree_ID
+          LEFT JOIN subject_tbl s ON s.Subject_ID = n.Subject_ID
           WHERE Added_By = ? AND Is_Active = 1
           ORDER BY Added_On DESC
         `;
@@ -377,8 +379,9 @@ export const getStudentActivities = async (req, res) => {
 
       case "Groups":
         query = `
-          SELECT Member_ID as id, Role as title, Joined_On as date
-          FROM chat_room_members_tbl
+          SELECT crm.Member_ID as id, crm.Room_Name as title, crm.Role as role, crm.Joined_On as date, h.Hobby_Name as based_on
+          FROM chat_room_members_tbl crm
+          LEFT JOIN hobbies_tbl h ON h.Hobby_ID = crm.Based_on
           WHERE Student_ID = ? AND Is_Active = 1
           ORDER BY Joined_On DESC
         `;
