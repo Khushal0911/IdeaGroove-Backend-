@@ -4,14 +4,13 @@ import {
   adminLogout,
   blockContent,
   blockStudent,
-  getAtRiskStudents,
   getComplaintsReport,
-  getContentBlockIndex,
   getDashboardStats,
-  getInactiveStudents,
-  getMostComplainedStudents,
+  getEventsReport,
+  getGroupsReport,
   getNotes,
-  getPlatformHealthScore,
+  getNotesReport,
+  getQnAReport,
   getRecentActivity,
   getTopContributor,
   toggleBlock,
@@ -31,11 +30,10 @@ adminRouter.post("/block", blockContent);
 adminRouter.post("/unblock", unblockContent);
 adminRouter.post("/toggle-block", toggleBlock);
 
-adminRouter.get("/platform-health-score", getPlatformHealthScore);
-adminRouter.get("/at-risk-students", getAtRiskStudents); // ?days=30
-adminRouter.get("/inactive-students", getInactiveStudents); // ?days=60
-adminRouter.get("/most-complained-students", getMostComplainedStudents);
-adminRouter.get("/content-block-index", getContentBlockIndex);
+adminRouter.get("/events-report", getEventsReport);
+adminRouter.get("/groups-report", getGroupsReport);
+adminRouter.get("/notes-report", getNotesReport);
+adminRouter.get("/qna-report", getQnAReport);
 adminRouter.get("/complaints-report", getComplaintsReport);
 
 adminRouter.post("/block-student", blockStudent);

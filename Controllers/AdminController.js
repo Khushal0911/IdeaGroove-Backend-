@@ -842,583 +842,299 @@ export const unblockStudent = async (req, res) => {
   }
 };
 
-export const getPlatformHealthScore = async (req, res) => {
-  try {
-    // Total & active users
-    const [[{ totalUsers }]] = await db.query(
-      `SELECT COUNT(*) AS totalUsers FROM student_tbl WHERE is_Active = 1`,
-    );
-
-    // Students who have posted at least one thing
-    const [[{ activePosters }]] = await db.query(`
-      SELECT COUNT(DISTINCT student_id) AS activePosters FROM (
-        SELECT Added_By AS student_id FROM notes_tbl     WHERE Is_Active = 1
-        UNION ALL
-        SELECT Added_By AS student_id FROM question_tbl  WHERE Is_Active = 1
-        UNION ALL
-        SELECT Added_By AS student_id FROM event_tbl     WHERE Is_Active = 1
-        UNION ALL
-        SELECT Created_By AS student_id FROM chat_rooms_tbl WHERE Is_Active = 1
-      ) t
-    `);
-
-    // Total content vs blocked content
-    const [[{ totalContent }]] = await db.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM notes_tbl)      +
-        (SELECT COUNT(*) FROM question_tbl)   +
-        (SELECT COUNT(*) FROM event_tbl)      +
-        (SELECT COUNT(*) FROM chat_rooms_tbl) AS totalContent
-    `);
-
-    const [[{ blockedContent }]] = await db.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM notes_tbl      WHERE Is_Active = 0) +
-        (SELECT COUNT(*) FROM question_tbl   WHERE Is_Active = 0) +
-        (SELECT COUNT(*) FROM event_tbl      WHERE Is_Active = 0) +
-        (SELECT COUNT(*) FROM chat_rooms_tbl WHERE Is_Active = 0) AS blockedContent
-    `);
-
-    // Unresolved complaints
-    const [[{ unresolvedComplaints }]] = await db.query(
-      `SELECT COUNT(*) AS unresolvedComplaints FROM complaint_tbl WHERE Status != 'Resolved'`,
-    );
-    const [[{ totalComplaints }]] = await db.query(
-      `SELECT COUNT(*) AS totalComplaints FROM complaint_tbl`,
-    );
-
-    // Total contributions for avg depth
-    const [[{ totalContributions }]] = await db.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM notes_tbl      WHERE Is_Active = 1) +
-        (SELECT COUNT(*) FROM question_tbl   WHERE Is_Active = 1) +
-        (SELECT COUNT(*) FROM event_tbl      WHERE Is_Active = 1) +
-        (SELECT COUNT(*) FROM chat_rooms_tbl WHERE Is_Active = 1) AS totalContributions
-    `);
-
-    // ── Score calculations ─────────────────────────────────
-    // 1. Activity Rate (30 pts): % of users who have posted at least once
-    const activityRate = totalUsers > 0 ? activePosters / totalUsers : 0;
-    const activityScore = Math.round(activityRate * 30);
-
-    // 2. Content Quality (25 pts): % of content that is NOT blocked
-    const activeContent = totalContent - blockedContent;
-    const qualityRate = totalContent > 0 ? activeContent / totalContent : 1;
-    const qualityScore = Math.round(qualityRate * 25);
-
-    // 3. Complaint Rate (25 pts): inverse of unresolved ratio
-    const complaintRate =
-      totalComplaints > 0 ? unresolvedComplaints / totalComplaints : 0;
-    const complaintScore = Math.round((1 - complaintRate) * 25);
-
-    // 4. Engagement Depth (20 pts): avg contributions per active user
-    //    Benchmark: 5+ contributions per user = full score
-    const avgContribs =
-      activePosters > 0 ? totalContributions / activePosters : 0;
-    const depthScore = Math.min(Math.round((avgContribs / 5) * 20), 20);
-
-    const totalScore =
-      activityScore + qualityScore + complaintScore + depthScore;
-
-    // Health label
-    const healthLabel =
-      totalScore >= 80
-        ? "Excellent"
-        : totalScore >= 60
-          ? "Good"
-          : totalScore >= 40
-            ? "Fair"
-            : "Needs Attention";
-
-    res.status(200).json({
-      totalScore,
-      healthLabel,
-      breakdown: {
-        activityScore,
-        activityRate: Math.round(activityRate * 100),
-        qualityScore,
-        qualityRate: Math.round(qualityRate * 100),
-        complaintScore,
-        complaintRate: Math.round(complaintRate * 100),
-        depthScore,
-        avgContributions: Math.round(avgContribs * 10) / 10,
-      },
-      meta: {
-        totalUsers,
-        activePosters,
-        totalContent,
-        blockedContent,
-        totalComplaints,
-        unresolvedComplaints,
-        totalContributions,
-      },
-    });
-  } catch (err) {
-    console.error("Platform Health Score Error:", err);
-    res.status(500).json({ error: "Failed to compute platform health score" });
-  }
+const getMonthlyTrend = async (tableName, dateColumn) => {
+  const [rows] = await db.query(`
+    SELECT
+      DATE_FORMAT(${dateColumn}, '%b') AS label,
+      COUNT(*)                          AS value
+    FROM ${tableName}
+    WHERE ${dateColumn} >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+    GROUP BY DATE_FORMAT(${dateColumn}, '%Y-%m'), DATE_FORMAT(${dateColumn}, '%b')
+    ORDER BY DATE_FORMAT(${dateColumn}, '%Y-%m') ASC
+  `);
+  return rows;
 };
 
-// ─────────────────────────────────────────────────────────────
-// 2. AT-RISK STUDENTS
-//    GET /admin/at-risk-students?days=30
-//
-//    Students who:
-//      - Posted at least once BEFORE the silence window
-//      - Have posted NOTHING within the last `days` days
-// ─────────────────────────────────────────────────────────────
-export const getAtRiskStudents = async (req, res) => {
-  const days = parseInt(req.query.days) || 30;
-
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. EVENTS REPORT  —  GET /admin/events-report
+// ─────────────────────────────────────────────────────────────────────────────
+export const getEventsReport = async (req, res) => {
   try {
-    const [rows] = await db.query(
-      `
-      SELECT
-        s.S_ID,
-        s.Name,
-        s.Email,
-        s.Profile_Pic,
-        d.Degree_Name,
-        s.Year,
-
-        -- Last activity date across all content types
-        MAX(last_activity.last_date) AS last_active_on,
-
-        -- Total lifetime contributions
-        COUNT(DISTINCT all_activity.activity_id) AS total_contributions,
-
-        -- Days since last activity
-        DATEDIFF(NOW(), MAX(last_activity.last_date)) AS days_silent
-
-      FROM student_tbl s
-      LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
-
-      -- Get their most recent post date per type
-      JOIN (
-        SELECT Added_By AS student_id, MAX(Added_On) AS last_date FROM notes_tbl     GROUP BY Added_By
-        UNION ALL
-        SELECT Added_By AS student_id, MAX(Added_On) AS last_date FROM question_tbl  GROUP BY Added_By
-        UNION ALL
-        SELECT Added_By AS student_id, MAX(Added_On) AS last_date FROM event_tbl     GROUP BY Added_By
-        UNION ALL
-        SELECT Created_By AS student_id, MAX(Created_On) AS last_date FROM chat_rooms_tbl GROUP BY Created_By
-      ) last_activity ON last_activity.student_id = s.S_ID
-
-      -- Get all lifetime contributions for count
-      JOIN (
-        SELECT Added_By AS student_id, N_ID   AS activity_id FROM notes_tbl
-        UNION ALL
-        SELECT Added_By AS student_id, Q_ID   AS activity_id FROM question_tbl
-        UNION ALL
-        SELECT Added_By AS student_id, E_ID   AS activity_id FROM event_tbl
-        UNION ALL
-        SELECT Created_By AS student_id, Room_ID AS activity_id FROM chat_rooms_tbl
-      ) all_activity ON all_activity.student_id = s.S_ID
-
-      WHERE s.is_Active = 1
-
-      GROUP BY s.S_ID, s.Name, s.Email, s.Profile_Pic, d.Degree_Name, s.Year
-
-      -- Silent for at least  days BUT has history (not just new users with 0 posts)
-      HAVING 
-        days_silent >= ?
-        AND total_contributions > 0
-
-      ORDER BY days_silent DESC
-    `,
-      [days],
-    );
-
-    res.status(200).json({
-      days,
-      count: rows.length,
-      students: rows,
-    });
-  } catch (err) {
-    console.error("At-Risk Students Error:", err);
-    res.status(500).json({ error: "Failed to fetch at-risk students" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────
-// 3. INACTIVE STUDENTS (never posted)
-//    GET /admin/inactive-students?days=60
-//
-//    Students who have NEVER posted anything
-//    OR joined more than `days` days ago and still have 0 posts
-// ─────────────────────────────────────────────────────────────
-export const getInactiveStudents = async (req, res) => {
-  const days = parseInt(req.query.days) || 60;
-
-  try {
-    // student_tbl has no Created_At — use S_ID rank as age proxy
-    // Students with lower S_ID are older (auto-increment)
-    // We fetch all students with 0 posts, then approximate age via S_ID percentile
+    // All event rows with student name + degree
     const [rows] = await db.query(`
       SELECT
-        s.S_ID,
-        s.Name,
-        s.Email,
-        s.Profile_Pic,
-        d.Degree_Name,
-        s.Year,
-        -- Approximate "days as member" using S_ID rank among all students
-        -- Lower S_ID = registered earlier = likely older account
-        ROUND(
-          (1 - (s.S_ID - (SELECT MIN(S_ID) FROM student_tbl)) /
-          NULLIF((SELECT MAX(S_ID) FROM student_tbl) - (SELECT MIN(S_ID) FROM student_tbl), 1))
-          * 365
-        ) AS days_since_joined
-
-      FROM student_tbl s
-      LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
-
-      WHERE s.is_Active = 1
-
-        -- Has never posted anything
-        AND s.S_ID NOT IN (SELECT DISTINCT Added_By   FROM notes_tbl)
-        AND s.S_ID NOT IN (SELECT DISTINCT Added_By   FROM question_tbl)
-        AND s.S_ID NOT IN (SELECT DISTINCT Added_By   FROM event_tbl)
-        AND s.S_ID NOT IN (SELECT DISTINCT Created_By FROM chat_rooms_tbl)
-
-      ORDER BY s.S_ID ASC
-    `);
-
-    res.status(200).json({
-      days,
-      count: rows.length,
-      students: rows,
-    });
-  } catch (err) {
-    console.error("Inactive Students Error:", err);
-    res.status(500).json({ error: "Failed to fetch inactive students" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────
-// 4. MOST COMPLAINED-ABOUT STUDENTS
-//    GET /admin/most-complained-students
-//
-//    Students ranked by how many complaints were filed against
-//    their content (notes, questions, events) or directly
-// ─────────────────────────────────────────────────────────────
-export const getMostComplainedStudents = async (req, res) => {
-  try {
-    const [rows] = await db.query(`
-      SELECT
-        s.S_ID,
-        s.Name,
-        s.Email,
-        s.Profile_Pic,
-        d.Degree_Name,
-        s.is_Active,
-
-        COUNT(c.Complaint_ID)                                          AS total_complaints,
-        SUM(c.Status = 'Resolved')                                     AS resolved,
-        SUM(c.Status = 'In-Progress')                                  AS in_progress,
-        SUM(c.Status = 'Pending')                                      AS pending,
-
-        -- Most recent complaint date
-        MAX(c.Date)                                                    AS latest_complaint_on,
-
-        -- How many of their own posts are blocked
-        (
-          SELECT COUNT(*) FROM notes_tbl      WHERE Added_By   = s.S_ID AND Is_Active = 0
-        ) + (
-          SELECT COUNT(*) FROM question_tbl   WHERE Added_By   = s.S_ID AND Is_Active = 0
-        ) + (
-          SELECT COUNT(*) FROM event_tbl      WHERE Added_By   = s.S_ID AND Is_Active = 0
-        )                                                              AS blocked_content_count
-
-      FROM student_tbl s
-      LEFT JOIN degree_tbl d    ON d.Degree_ID   = s.Degree_ID
-      JOIN      complaint_tbl c ON c.Student_ID  = s.S_ID
-
-      GROUP BY s.S_ID, s.Name, s.Email, s.Profile_Pic, d.Degree_Name, s.is_Active
-
-      ORDER BY total_complaints DESC
-      LIMIT 20
-    `);
-
-    res.status(200).json({
-      count: rows.length,
-      students: rows,
-    });
-  } catch (err) {
-    console.error("Most Complained Students Error:", err);
-    res.status(500).json({ error: "Failed to fetch most complained students" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────
-// 5. CONTENT BLOCK INDEX (per subject & degree)
-//    GET /admin/content-block-index
-//
-//    Which subjects/degrees have the worst block ratio
-//    so admin knows where content quality is lowest
-// ─────────────────────────────────────────────────────────────
-export const getContentBlockIndex = async (req, res) => {
-  try {
-    // Per-subject block ratio — join via degree_subject_mapping_tbl
-    // since subject_tbl has no Degree_ID column
-    const [bySubject] = await db.query(`
-      SELECT
-        sub.Subject_ID,
-        sub.Subject_Name,
-        d.Degree_Name,
-        COUNT(n.N_ID)                                          AS total_notes,
-        SUM(n.Is_Active = 0)                                   AS blocked_notes,
-        SUM(n.Is_Active = 1)                                   AS active_notes,
-        ROUND(SUM(n.Is_Active = 0) / COUNT(n.N_ID) * 100, 1)  AS block_rate_pct
-
-      FROM notes_tbl n
-      JOIN subject_tbl sub              ON sub.Subject_ID  = n.Subject_ID
-      JOIN degree_subject_mapping_tbl m ON m.Subject_ID    = sub.Subject_ID
-      JOIN degree_tbl d                 ON d.Degree_ID     = m.Degree_ID
-
-      GROUP BY sub.Subject_ID, sub.Subject_Name, d.Degree_Name
-      HAVING total_notes >= 1
-      ORDER BY block_rate_pct DESC
-      LIMIT 15
-    `);
-
-    // Per-degree block ratio (all content types combined)
-    const [byDegree] = await db.query(`
-      SELECT
-        d.Degree_ID,
-        d.Degree_Name,
-
-        -- Notes
-        SUM(CASE WHEN content_type = 'Note'     THEN 1 ELSE 0 END) AS total_notes,
-        SUM(CASE WHEN content_type = 'Note'     AND is_blocked = 1 THEN 1 ELSE 0 END) AS blocked_notes,
-
-        -- Questions
-        SUM(CASE WHEN content_type = 'Question' THEN 1 ELSE 0 END) AS total_questions,
-        SUM(CASE WHEN content_type = 'Question' AND is_blocked = 1 THEN 1 ELSE 0 END) AS blocked_questions,
-
-        COUNT(*) AS total_content,
-        SUM(is_blocked)                                             AS total_blocked,
-        ROUND(SUM(is_blocked) / COUNT(*) * 100, 1)                 AS overall_block_rate_pct
-
-      FROM (
-        SELECT n.Degree_ID, 'Note' AS content_type, (1 - n.Is_Active) AS is_blocked
-        FROM notes_tbl n
-
-        UNION ALL
-
-        SELECT q.Degree_ID, 'Question' AS content_type, (1 - q.Is_Active) AS is_blocked
-        FROM question_tbl q
-      ) combined
-
-      JOIN degree_tbl d ON d.Degree_ID = combined.Degree_ID
-      GROUP BY d.Degree_ID, d.Degree_Name
-      HAVING total_content >= 3
-      ORDER BY overall_block_rate_pct DESC
-    `);
-
-    res.status(200).json({
-      bySubject,
-      byDegree,
-    });
-  } catch (err) {
-    console.error("Content Block Index Error:", err);
-    res.status(500).json({ error: "Failed to fetch content block index" });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────
-// 6. COMPLAINTS REPORT
-//    GET /admin/complaints-report
-//
-//    Full complaints data with resolution stats,
-//    average resolution time, and breakdown by status
-// ─────────────────────────────────────────────────────────────
-export const getComplaintsReport = async (req, res) => {
-  try {
-    // Summary stats
-    const [[summary]] = await db.query(`
-      SELECT
-        COUNT(*)                                       AS total,
-        SUM(Status = 'Resolved')                       AS resolved,
-        SUM(Status = 'In-Progress')                    AS in_progress,
-        SUM(Status = 'Pending')                        AS pending,
-        ROUND(SUM(Status = 'Resolved') / COUNT(*) * 100, 1) AS resolution_rate_pct,
-
-        -- Average days to resolve — null safe (Updated_At may not exist)
-        NULL AS avg_resolution_days
-
-      FROM complaint_tbl
-    `);
-
-    // Monthly trend (last 12 months)
-    const [monthlyTrend] = await db.query(`
-      SELECT
-        DATE_FORMAT(Date, '%Y-%m') AS month,
-        COUNT(*)                   AS total,
-        SUM(Status = 'Resolved')   AS resolved,
-        SUM(Status = 'Pending')    AS pending
-      FROM complaint_tbl
-      WHERE Date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-      GROUP BY month
-      ORDER BY month ASC
-    `);
-
-    // Full complaint list with student info
-    const [complaints] = await db.query(`
-      SELECT
-        c.Complaint_ID,
-        c.Complaint_Text,
-        c.Status,
-        c.Date          AS filed_on,
-        NULL            AS updated_on,
-        DATEDIFF(NOW(), c.Date) AS age_days,
-
-        s.S_ID          AS student_id,
+        e.E_ID,
+        e.Description,
+        DATE_FORMAT(e.Event_Date, '%Y-%m-%d')  AS Event_Date,
+        DATE_FORMAT(e.Added_On,   '%Y-%m-%d')  AS Added_On,
+        e.Is_Active,
         s.Name          AS student_name,
-        s.Email         AS student_email,
-        s.Profile_Pic   AS student_pic,
         d.Degree_Name
-
-      FROM complaint_tbl c
-      JOIN student_tbl s ON s.S_ID = c.Student_ID
-      LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
-
-      ORDER BY c.Date DESC
+      FROM event_tbl e
+      LEFT JOIN student_tbl s ON s.S_ID  = e.Added_By
+      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
+      ORDER BY e.Added_On DESC
     `);
+
+    const total = rows.length;
+    const active = rows.filter((r) => r.Is_Active === 1).length;
+    const blocked = total - active;
+
+    const summary = [
+      { label: "Total Events", value: total },
+      { label: "Active", value: active },
+      { label: "Blocked", value: blocked },
+    ];
+
+    const donut = [
+      { label: "Active", value: active, color: "#10b981" },
+      { label: "Blocked", value: blocked, color: "#ef4444" },
+    ].filter((s) => s.value > 0);
+
+    const bars = await getMonthlyTrend("event_tbl", "Added_On");
 
     res.status(200).json({
       summary,
-      monthlyTrend,
-      complaints,
+      chartData: { donut, bars },
+      rows,
     });
   } catch (err) {
-    console.error("Complaints Report Error:", err);
-    res.status(500).json({ error: "Failed to fetch complaints report" });
+    console.error("Events Report Error:", err);
+    res.status(500).json({ error: "Failed to fetch events report" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-// 7. STUDENT NOTES PORTFOLIO
-//    GET /students/:id/notes-portfolio
-//
-//    For both admin and student use:
-//      - All notes uploaded by the student
-//      - Subject coverage: which subjects they contributed to
-//      - Gaps: subjects in their degree they haven't covered
-//      - Rank within their degree group
-// ─────────────────────────────────────────────────────────────
-export const getStudentNotesPortfolio = async (req, res) => {
-  const { id } = req.params;
-
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. GROUPS REPORT  —  GET /admin/groups-report
+// ─────────────────────────────────────────────────────────────────────────────
+export const getGroupsReport = async (req, res) => {
   try {
-    // Basic student info
-    const [[student]] = await db.query(
-      `
+    const [rows] = await db.query(`
       SELECT
-        s.S_ID, s.Name, s.Email, s.Profile_Pic,
-        s.Roll_No, s.Year,
-        d.Degree_ID, d.Degree_Name
-      FROM student_tbl s
-      LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
-      WHERE s.S_ID = ?
-    `,
-      [id],
-    );
+        cr.Room_ID,
+        cr.Room_Name,
+        DATE_FORMAT(
+          cr.Created_On, '%Y-%m-%d'
+        ) AS Created_On,
+        cr.Is_Active,
+        s.Name   AS student_name,
+        d.Degree_Name,
+        (
+          SELECT COUNT(*)
+          FROM chat_room_members_tbl cm2
+          WHERE cm2.Room_ID = cr.Room_ID
+        ) AS member_count
+      FROM chat_rooms_tbl cr
+      LEFT JOIN student_tbl s ON s.S_ID     = cr.Created_By
+      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
+      GROUP BY cr.Room_ID, cr.Room_Name, cr.Is_Active, s.Name, d.Degree_Name
+      ORDER BY cr.Room_ID DESC
+    `);
 
-    if (!student) {
-      return res.status(404).json({ error: "Student not found" });
+    const total = rows.length;
+    const active = rows.filter((r) => r.Is_Active === 1).length;
+    const blocked = total - active;
+    const totalMembers = rows.reduce(
+      (sum, r) => sum + (r.member_count || 0),
+      0,
+    );
+    const avgMembers = total > 0 ? Math.round(totalMembers / total) : 0;
+
+    const summary = [
+      { label: "Total Groups", value: total },
+      { label: "Active", value: active },
+      { label: "Blocked", value: blocked },
+      { label: "Avg Members", value: avgMembers },
+    ];
+
+    const donut = [
+      { label: "Active", value: active, color: "#10b981" },
+      { label: "Blocked", value: blocked, color: "#ef4444" },
+    ].filter((s) => s.value > 0);
+
+    // Try Created_On, fall back to empty array if column missing
+    let bars = [];
+    try {
+      bars = await getMonthlyTrend("chat_rooms_tbl", "Created_On");
+    } catch {
+      try {
+        bars = await getMonthlyTrend("chat_rooms_tbl", "Created_At");
+      } catch {}
     }
 
-    // All notes by this student
-    const [notes] = await db.query(
-      `
+    res.status(200).json({
+      summary,
+      chartData: { donut, bars },
+      rows,
+    });
+  } catch (err) {
+    console.error("Groups Report Error:", err);
+    res.status(500).json({ error: "Failed to fetch groups report" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. NOTES REPORT  —  GET /admin/notes-report
+// ─────────────────────────────────────────────────────────────────────────────
+export const getNotesReport = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
       SELECT
         n.N_ID,
         n.File_Name,
         n.Description,
+        DATE_FORMAT(n.Added_On, '%Y-%m-%d') AS Added_On,
         n.Is_Active,
-        n.Added_On,
-        sub.Subject_ID,
+        s.Name          AS student_name,
         sub.Subject_Name,
         d.Degree_Name
       FROM notes_tbl n
-      LEFT JOIN subject_tbl sub ON sub.Subject_ID = n.Subject_ID
-      LEFT JOIN degree_tbl  d   ON d.Degree_ID    = n.Degree_ID
-      WHERE n.Added_By = ?
+      LEFT JOIN student_tbl  s   ON s.S_ID       = n.Added_By
+      LEFT JOIN subject_tbl  sub ON sub.Subject_ID = n.Subject_ID
+      LEFT JOIN degree_tbl   d   ON d.Degree_ID    = s.Degree_ID
       ORDER BY n.Added_On DESC
-    `,
-      [id],
-    );
+    `);
 
-    // All subjects available in their degree
-    const [allSubjects] = await db.query(
-      `
-      SELECT DISTINCT
-        sub.Subject_ID,
-        sub.Subject_Name
-      FROM subject_tbl sub
-      WHERE sub.Degree_ID = ?
-      ORDER BY sub.Subject_Name ASC
-    `,
-      [student.Degree_ID],
-    );
+    const total = rows.length;
+    const active = rows.filter((r) => r.Is_Active === 1).length;
+    const blocked = total - active;
 
-    // Which subjects this student has covered
-    const coveredSubjectIds = new Set(
-      notes.map((n) => n.Subject_ID).filter(Boolean),
-    );
+    // unique uploaders
+    const uniqueAuthors = new Set(
+      rows.map((r) => r.student_name).filter(Boolean),
+    ).size;
 
-    const subjectCoverage = allSubjects.map((sub) => ({
-      ...sub,
-      covered: coveredSubjectIds.has(sub.Subject_ID),
-      note_count: notes.filter((n) => n.Subject_ID === sub.Subject_ID).length,
-    }));
+    const summary = [
+      { label: "Total Notes", value: total },
+      { label: "Active", value: active },
+      { label: "Blocked", value: blocked },
+      { label: "Contributors", value: uniqueAuthors },
+    ];
 
-    const coveredCount = subjectCoverage.filter((s) => s.covered).length;
-    const coveragePct =
-      allSubjects.length > 0
-        ? Math.round((coveredCount / allSubjects.length) * 100)
-        : 0;
+    const donut = [
+      { label: "Active", value: active, color: "#10b981" },
+      { label: "Blocked", value: blocked, color: "#ef4444" },
+    ].filter((s) => s.value > 0);
 
-    // Rank within their degree — by note count
-    // Using regular string to avoid backtick conflict with JS template literals
-    const rankQuery =
-      "SELECT rank_pos AS rank_alias FROM (" +
-      " SELECT Added_By AS student_id, COUNT(*) AS note_count," +
-      " RANK() OVER (ORDER BY COUNT(*) DESC) AS rank_pos" +
-      " FROM notes_tbl WHERE Is_Active = 1 AND Degree_ID = ?" +
-      " GROUP BY Added_By" +
-      ") ranked WHERE student_id = ?";
-    const [[rankRow]] = await db.query(rankQuery, [student.Degree_ID, id]);
-    const rank = rankRow?.rank_alias || null;
-
-    // Total students in same degree who have at least 1 note
-    const [[{ degreePosters }]] = await db.query(
-      `
-      SELECT COUNT(DISTINCT Added_By) AS degreePosters
-      FROM notes_tbl
-      WHERE Is_Active = 1 AND Degree_ID = ?
-    `,
-      [student.Degree_ID],
-    );
+    const bars = await getMonthlyTrend("notes_tbl", "Added_On");
 
     res.status(200).json({
-      student,
-      stats: {
-        totalNotes: notes.length,
-        activeNotes: notes.filter((n) => n.Is_Active === 1).length,
-        blockedNotes: notes.filter((n) => n.Is_Active === 0).length,
-        subjectsCovered: coveredCount,
-        totalSubjects: allSubjects.length,
-        coveragePct,
-        rankInDegree: rank,
-        degreePosters,
-      },
-      notes,
-      subjectCoverage,
+      summary,
+      chartData: { donut, bars },
+      rows,
     });
   } catch (err) {
-    console.error("Student Notes Portfolio Error:", err);
-    res.status(500).json({ error: "Failed to fetch notes portfolio" });
+    console.error("Notes Report Error:", err);
+    res.status(500).json({ error: "Failed to fetch notes report" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. Q&A REPORT  —  GET /admin/qna-report
+// ─────────────────────────────────────────────────────────────────────────────
+export const getQnAReport = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        q.Q_ID,
+        q.Question,
+        DATE_FORMAT(q.Added_On, '%Y-%m-%d') AS Added_On,
+        q.Is_Active,
+        s.Name            AS student_name,
+        sub.Subject_Name,
+        d.Degree_Name,
+        COUNT(a.A_ID)     AS answer_count
+      FROM question_tbl q
+      LEFT JOIN student_tbl  s   ON s.S_ID        = q.Added_By
+      LEFT JOIN subject_tbl  sub ON sub.Subject_ID  = q.Subject_ID
+      LEFT JOIN degree_tbl   d   ON d.Degree_ID     = s.Degree_ID
+      LEFT JOIN answer_tbl   a   ON a.Q_ID          = q.Q_ID
+      GROUP BY q.Q_ID, q.Question, q.Added_On, q.Is_Active,
+               s.Name, sub.Subject_Name, d.Degree_Name
+      ORDER BY q.Added_On DESC
+    `);
+
+    const total = rows.length;
+    const active = rows.filter((r) => r.Is_Active === 1).length;
+    const blocked = total - active;
+    const answered = rows.filter((r) => r.answer_count > 0).length;
+    const unanswered = total - answered;
+
+    const summary = [
+      { label: "Total Questions", value: total },
+      { label: "Active", value: active },
+      { label: "Answered", value: answered },
+      { label: "Unanswered", value: unanswered },
+    ];
+
+    const donut = [
+      { label: "Answered", value: answered, color: "#10b981" },
+      { label: "Unanswered", value: unanswered, color: "#f59e0b" },
+      { label: "Blocked", value: blocked, color: "#ef4444" },
+    ].filter((s) => s.value > 0);
+
+    const bars = await getMonthlyTrend("question_tbl", "Added_On");
+
+    res.status(200).json({
+      summary,
+      chartData: { donut, bars },
+      rows,
+    });
+  } catch (err) {
+    console.error("Q&A Report Error:", err);
+    res.status(500).json({ error: "Failed to fetch Q&A report" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. COMPLAINTS REPORT  —  GET /admin/complaints-report
+// ─────────────────────────────────────────────────────────────────────────────
+export const getComplaintsReport = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        c.Complaint_ID,
+        c.Complaint_Text,
+        DATE_FORMAT(c.Date, '%Y-%m-%d') AS Date,
+        c.Status,
+        s.Name       AS student_name,
+        d.Degree_Name,
+        DATEDIFF(NOW(), c.Date) AS age_days
+      FROM complaint_tbl c
+      LEFT JOIN student_tbl s ON s.S_ID = c.Student_ID
+      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
+      ORDER BY c.Date DESC
+    `);
+
+    const total = rows.length;
+    const resolved = rows.filter((r) => r.Status === "Resolved").length;
+    const pending = rows.filter((r) => r.Status === "Pending").length;
+    const inProgress = rows.filter((r) => r.Status === "In-Progress").length;
+    const resRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
+
+    const summary = [
+      { label: "Total", value: total },
+      { label: "Resolved", value: resolved },
+      { label: "Pending", value: pending },
+      { label: "In-Progress", value: inProgress },
+      { label: "Resolution %", value: resRate + "%" },
+    ];
+
+    const donut = [
+      { label: "Resolved", value: resolved, color: "#10b981" },
+      { label: "Pending", value: pending, color: "#f59e0b" },
+      { label: "In-Progress", value: inProgress, color: "#6366f1" },
+    ].filter((s) => s.value > 0);
+
+    const bars = await getMonthlyTrend("complaint_tbl", "Date");
+
+    res.status(200).json({
+      summary,
+      chartData: { donut, bars },
+      rows,
+    });
+  } catch (err) {
+    console.error("Complaints Report Error:", err);
+    res.status(500).json({ error: "Failed to fetch complaints report" });
   }
 };
