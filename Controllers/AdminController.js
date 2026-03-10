@@ -842,6 +842,11 @@ export const unblockStudent = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: build monthly trend for last 6 months from a date column
+// tableName   — e.g. "event_tbl"
+// dateColumn  — e.g. "Event_Date"
+// ─────────────────────────────────────────────────────────────────────────────
 const getMonthlyTrend = async (tableName, dateColumn) => {
   const [rows] = await db.query(`
     SELECT
@@ -856,11 +861,68 @@ const getMonthlyTrend = async (tableName, dateColumn) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 0. USERS REPORT  —  GET /admin/users-report
+// ─────────────────────────────────────────────────────────────────────────────
+export const getUsersReport = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        s.S_ID,
+        s.Name,
+        s.Roll_No,
+        s.Email,
+        s.Year,
+        s.is_Active,
+        d.Degree_Name,
+        h.Hobby_Name  AS hobby_name
+      FROM student_tbl s
+      LEFT JOIN degree_tbl  d ON d.Degree_ID  = s.Degree_ID
+      LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
+      LEFT JOIN hobbies_tbl h ON shm.Hobby_ID = h.Hobby_ID
+      ORDER BY s.Name ASC
+    `);
+
+    const total = rows.length;
+    const active = rows.filter((r) => r.is_Active === 1).length;
+    const blocked = total - active;
+    const degrees = [...new Set(rows.map((r) => r.Degree_Name).filter(Boolean))]
+      .length;
+
+    const summary = [
+      { label: "Total Users", value: total },
+      { label: "Active", value: active },
+      { label: "Blocked", value: blocked },
+      { label: "Degrees", value: degrees },
+    ];
+
+    const donut = [
+      { label: "Active", value: active, color: "#0ea5e9" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
+    ].filter((s) => s.value > 0);
+
+    // bar chart: students per degree
+    const degreeMap = rows.reduce((acc, r) => {
+      const d = r.Degree_Name || "Unknown";
+      acc[d] = (acc[d] || 0) + 1;
+      return acc;
+    }, {});
+    const bars = Object.entries(degreeMap)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
+
+    res.status(200).json({ summary, chartData: { donut, bars }, rows });
+  } catch (err) {
+    console.error("Users Report Error:", err);
+    res.status(500).json({ error: "Failed to fetch users report" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 1. EVENTS REPORT  —  GET /admin/events-report
 // ─────────────────────────────────────────────────────────────────────────────
 export const getEventsReport = async (req, res) => {
   try {
-    // All event rows with student name + degree
     const [rows] = await db.query(`
       SELECT
         e.E_ID,
@@ -868,30 +930,32 @@ export const getEventsReport = async (req, res) => {
         DATE_FORMAT(e.Event_Date, '%Y-%m-%d')  AS Event_Date,
         DATE_FORMAT(e.Added_On,   '%Y-%m-%d')  AS Added_On,
         e.Is_Active,
-        s.Name          AS student_name,
-        d.Degree_Name
+        s.Name  AS student_name,
+        CASE WHEN e.Event_Date >= CURDATE() THEN 'Upcoming' ELSE 'Past' END AS event_status
       FROM event_tbl e
-      LEFT JOIN student_tbl s ON s.S_ID  = e.Added_By
-      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
-      ORDER BY e.Added_On DESC
+      LEFT JOIN student_tbl s ON s.S_ID = e.Added_By
+      ORDER BY e.Event_Date DESC
     `);
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
     const blocked = total - active;
+    const upcoming = rows.filter((r) => r.event_status === "Upcoming").length;
+    const past = total - upcoming;
 
     const summary = [
       { label: "Total Events", value: total },
-      { label: "Active", value: active },
+      { label: "Upcoming", value: upcoming },
+      { label: "Past", value: past },
       { label: "Blocked", value: blocked },
     ];
 
     const donut = [
-      { label: "Active", value: active, color: "#10b981" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Upcoming", value: upcoming, color: "#f59e0b" },
+      { label: "Past", value: past, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
-    const bars = await getMonthlyTrend("event_tbl", "Added_On");
+    const bars = await getMonthlyTrend("event_tbl", "Event_Date");
 
     res.status(200).json({
       summary,
@@ -909,25 +973,35 @@ export const getEventsReport = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getGroupsReport = async (req, res) => {
   try {
+    // Fetch column names so we can adapt dynamically
+    const [[colInfo]] = await db.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'chat_rooms_tbl'
+       AND COLUMN_NAME IN ('Created_On','Created_At')
+       LIMIT 1`,
+    );
+    const dateCol = colInfo?.COLUMN_NAME || null;
+    const dateExpr = dateCol
+      ? `DATE_FORMAT(cr.${dateCol}, '%Y-%m-%d')`
+      : `NULL`;
+
     const [rows] = await db.query(`
       SELECT
         cr.Room_ID,
         cr.Room_Name,
-        DATE_FORMAT(
-          cr.Created_On, '%Y-%m-%d'
-        ) AS Created_On,
+        ${dateExpr} AS Created_On,
         cr.Is_Active,
-        s.Name   AS student_name,
-        d.Degree_Name,
+        s.Name         AS student_name,
+        h.Hobby_Name   AS hobby_name,
         (
           SELECT COUNT(*)
           FROM chat_room_members_tbl cm2
           WHERE cm2.Room_ID = cr.Room_ID
         ) AS member_count
       FROM chat_rooms_tbl cr
-      LEFT JOIN student_tbl s ON s.S_ID     = cr.Created_By
-      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
-      GROUP BY cr.Room_ID, cr.Room_Name, cr.Is_Active, s.Name, d.Degree_Name
+      LEFT JOIN student_tbl s ON s.S_ID = cr.Created_By
+      LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
+      LEFT JOIN hobbies_tbl h ON shm.Hobby_ID = h.Hobby_ID
       ORDER BY cr.Room_ID DESC
     `);
 
@@ -948,17 +1022,14 @@ export const getGroupsReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Active", value: active, color: "#10b981" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Active", value: active, color: "#9333ea" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
-    // Try Created_On, fall back to empty array if column missing
     let bars = [];
-    try {
-      bars = await getMonthlyTrend("chat_rooms_tbl", "Created_On");
-    } catch {
+    if (dateCol) {
       try {
-        bars = await getMonthlyTrend("chat_rooms_tbl", "Created_At");
+        bars = await getMonthlyTrend("chat_rooms_tbl", dateCol);
       } catch {}
     }
 
@@ -1012,8 +1083,8 @@ export const getNotesReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Active", value: active, color: "#10b981" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Active", value: active, color: "#e11d48" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("notes_tbl", "Added_On");
@@ -1040,17 +1111,22 @@ export const getQnAReport = async (req, res) => {
         q.Question,
         DATE_FORMAT(q.Added_On, '%Y-%m-%d') AS Added_On,
         q.Is_Active,
-        s.Name            AS student_name,
+        s.Name           AS student_name,
         sub.Subject_Name,
-        d.Degree_Name,
-        COUNT(a.A_ID)     AS answer_count
+        COUNT(a.A_ID)    AS answer_count,
+        (
+          SELECT a2.Answer
+          FROM answer_tbl a2
+          WHERE a2.Q_ID = q.Q_ID
+          ORDER BY a2.A_ID ASC
+          LIMIT 1
+        )                AS top_answer
       FROM question_tbl q
-      LEFT JOIN student_tbl  s   ON s.S_ID        = q.Added_By
+      LEFT JOIN student_tbl  s   ON s.S_ID         = q.Added_By
       LEFT JOIN subject_tbl  sub ON sub.Subject_ID  = q.Subject_ID
-      LEFT JOIN degree_tbl   d   ON d.Degree_ID     = s.Degree_ID
       LEFT JOIN answer_tbl   a   ON a.Q_ID          = q.Q_ID
       GROUP BY q.Q_ID, q.Question, q.Added_On, q.Is_Active,
-               s.Name, sub.Subject_Name, d.Degree_Name
+               s.Name, sub.Subject_Name
       ORDER BY q.Added_On DESC
     `);
 
@@ -1068,9 +1144,9 @@ export const getQnAReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Answered", value: answered, color: "#10b981" },
+      { label: "Answered", value: answered, color: "#25eb63" },
       { label: "Unanswered", value: unanswered, color: "#f59e0b" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("question_tbl", "Added_On");
@@ -1091,20 +1167,34 @@ export const getQnAReport = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getComplaintsReport = async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    // Discover FK column name in complaint_tbl dynamically
+    const [[fkCol]] = await db.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'complaint_tbl'
+       AND COLUMN_NAME IN ('S_ID','Student_ID','student_id')
+       LIMIT 1`,
+    );
+    const complaintFk = fkCol?.COLUMN_NAME || "S_ID";
+
+    const complaintSQL =
+      `
       SELECT
         c.Complaint_ID,
         c.Complaint_Text,
+        c.Type,
         DATE_FORMAT(c.Date, '%Y-%m-%d') AS Date,
         c.Status,
-        s.Name       AS student_name,
-        d.Degree_Name,
+        s.Name  AS student_name,
         DATEDIFF(NOW(), c.Date) AS age_days
       FROM complaint_tbl c
-      LEFT JOIN student_tbl s ON s.S_ID = c.Student_ID
-      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
+      LEFT JOIN student_tbl s ON s.S_ID = c.` +
+      "`" +
+      `${complaintFk}` +
+      "`" +
+      `
       ORDER BY c.Date DESC
-    `);
+    `;
+    const [rows] = await db.query(complaintSQL);
 
     const total = rows.length;
     const resolved = rows.filter((r) => r.Status === "Resolved").length;
@@ -1121,9 +1211,9 @@ export const getComplaintsReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Resolved", value: resolved, color: "#10b981" },
+      { label: "Resolved", value: resolved, color: "#25eb63" },
       { label: "Pending", value: pending, color: "#f59e0b" },
-      { label: "In-Progress", value: inProgress, color: "#6366f1" },
+      { label: "In-Progress", value: inProgress, color: "#ef4444" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("complaint_tbl", "Date");

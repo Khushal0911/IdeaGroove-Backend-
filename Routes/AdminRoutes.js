@@ -13,6 +13,7 @@ import {
   getQnAReport,
   getRecentActivity,
   getTopContributor,
+  getUsersReport,
   toggleBlock,
   unblockContent,
   unblockStudent,
@@ -30,6 +31,7 @@ adminRouter.post("/block", blockContent);
 adminRouter.post("/unblock", unblockContent);
 adminRouter.post("/toggle-block", toggleBlock);
 
+adminRouter.get("/users-report", getUsersReport);
 adminRouter.get("/events-report", getEventsReport);
 adminRouter.get("/groups-report", getGroupsReport);
 adminRouter.get("/notes-report", getNotesReport);
