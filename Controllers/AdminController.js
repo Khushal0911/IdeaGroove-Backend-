@@ -842,6 +842,479 @@ export const unblockStudent = async (req, res) => {
   }
 };
 
+// const getMonthlyTrend = async (tableName, dateColumn) => {
+//   const [rows] = await db.query(`
+//     SELECT
+//       DATE_FORMAT(${dateColumn}, '%b') AS label,
+//       COUNT(*)                          AS value
+//     FROM ${tableName}
+//     WHERE ${dateColumn} >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+//     GROUP BY DATE_FORMAT(${dateColumn}, '%Y-%m'), DATE_FORMAT(${dateColumn}, '%b')
+//     ORDER BY DATE_FORMAT(${dateColumn}, '%Y-%m') ASC
+//   `);
+//   return rows;
+// };
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // 0. USERS REPORT  —  GET /admin/users-report
+// // ─────────────────────────────────────────────────────────────────────────────
+// export const getUsersReport = async (req, res) => {
+//   try {
+//     const filters = req.body || {};
+//     let where = [];
+//     let params = [];
+
+//     if (filters.degree) {
+//       where.push("s.Degree_ID = ?");
+//       params.push(filters.degree);
+//     }
+
+//     if (filters.college) {
+//       where.push("s.College_ID = ?");
+//       params.push(filters.college);
+//     }
+
+//     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+//     const [rows] = await db.query(
+//       `
+//       SELECT
+//         s.S_ID,
+//         s.Name,
+//         s.Roll_No,
+//         s.Email,
+//         s.Year,
+//         s.is_Active,
+//         d.Degree_Name,
+//         h.Hobby_Name AS hobby_name
+//       FROM student_tbl s
+//       LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
+//       LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
+//       LEFT JOIN hobbies_tbl h ON shm.Hobby_ID = h.Hobby_ID
+//       ${whereClause}
+//       ORDER BY s.Name ASC
+//     `,
+//       params,
+//     );
+
+//     const total = rows.length;
+//     const active = rows.filter((r) => r.is_Active === 1).length;
+//     const blocked = total - active;
+//     const degrees = [...new Set(rows.map((r) => r.Degree_Name).filter(Boolean))]
+//       .length;
+
+//     const summary = [
+//       { label: "Total Users", value: total },
+//       { label: "Active", value: active },
+//       { label: "Blocked", value: blocked },
+//       { label: "Degrees", value: degrees },
+//     ];
+
+//     const donut = [
+//       { label: "Active", value: active, color: "#0ea5e9" },
+//       { label: "Blocked", value: blocked, color: "#94a3b8" },
+//     ].filter((s) => s.value > 0);
+
+//     // bar chart: students per degree
+//     const degreeMap = rows.reduce((acc, r) => {
+//       const d = r.Degree_Name || "Unknown";
+//       acc[d] = (acc[d] || 0) + 1;
+//       return acc;
+//     }, {});
+//     const bars = Object.entries(degreeMap)
+//       .map(([label, value]) => ({ label, value }))
+//       .sort((a, b) => b.value - a.value)
+//       .slice(0, 6);
+
+//     res.status(200).json({ summary, chartData: { donut, bars }, rows });
+//   } catch (err) {
+//     console.error("Users Report Error:", err);
+//     res.status(500).json({ error: "Failed to fetch users report" });
+//   }
+// };
+
+// export const getEventsReport = async (req, res) => {
+//   try {
+//     const filters = req.body || {};
+//     let where = [];
+//     let params = [];
+
+//     if (filters.event_status === "Upcoming") {
+//       where.push("e.Event_Date >= CURDATE()");
+//     }
+
+//     if (filters.event_status === "Past") {
+//       where.push("e.Event_Date < CURDATE()");
+//     }
+
+//     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+//     const [rows] = await db.query(`
+//       SELECT
+//         e.E_ID,
+//         e.Description,
+//         DATE_FORMAT(e.Event_Date, '%Y-%m-%d')  AS Event_Date,
+//         DATE_FORMAT(e.Added_On,   '%Y-%m-%d')  AS Added_On,
+//         e.Is_Active,
+//         s.Name  AS student_name,
+//         CASE WHEN e.Event_Date >= CURDATE() THEN 'Upcoming' ELSE 'Past' END AS event_status
+//       FROM event_tbl e
+//       LEFT JOIN student_tbl s ON s.S_ID = e.Added_By
+//       ${whereClause}
+//       ORDER BY e.Event_Date DESC
+//     `);
+
+//     const total = rows.length;
+//     const active = rows.filter((r) => r.Is_Active === 1).length;
+//     const blocked = total - active;
+//     const upcoming = rows.filter((r) => r.event_status === "Upcoming").length;
+//     const past = total - upcoming;
+
+//     const summary = [
+//       { label: "Total Events", value: total },
+//       { label: "Upcoming", value: upcoming },
+//       { label: "Past", value: past },
+//       { label: "Blocked", value: blocked },
+//     ];
+
+//     const donut = [
+//       { label: "Upcoming", value: upcoming, color: "#f59e0b" },
+//       { label: "Past", value: past, color: "#94a3b8" },
+//     ].filter((s) => s.value > 0);
+
+//     const bars = await getMonthlyTrend("event_tbl", "Event_Date");
+
+//     res.status(200).json({
+//       summary,
+//       chartData: { donut, bars },
+//       rows,
+//     });
+//   } catch (err) {
+//     console.error("Events Report Error:", err);
+//     res.status(500).json({ error: "Failed to fetch events report" });
+//   }
+// };
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // 2. GROUPS REPORT  —  GET /admin/groups-report
+// // ─────────────────────────────────────────────────────────────────────────────
+// export const getGroupsReport = async (req, res) => {
+//   try {
+//     const filters = req.body || {};
+//     let where = [];
+//     let params = [];
+
+//     if (filters.hobby) {
+//       where.push("h.Hobby_ID = ?");
+//       params.push(filters.hobby);
+//     }
+
+//     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+//     // Fetch column names so we can adapt dynamically
+//     const [[colInfo]] = await db.query(
+//       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+//        WHERE TABLE_NAME = 'chat_rooms_tbl'
+//        AND COLUMN_NAME IN ('Created_On','Created_At')
+//        LIMIT 1`,
+//     );
+//     const dateCol = colInfo?.COLUMN_NAME || null;
+//     const dateExpr = dateCol
+//       ? `DATE_FORMAT(cr.${dateCol}, '%Y-%m-%d')`
+//       : `NULL`;
+
+//     const [rows] = await db.query(
+//       `
+//       SELECT
+//         cr.Room_ID,
+//         cr.Room_Name,
+//         ${dateExpr} AS Created_On,
+//         cr.Is_Active,
+//         s.Name         AS student_name,
+//         h.Hobby_Name   AS hobby_name,
+//         (
+//           SELECT COUNT(*)
+//           FROM chat_room_members_tbl cm2
+//           WHERE cm2.Room_ID = cr.Room_ID
+//         ) AS member_count
+//       FROM chat_rooms_tbl cr
+//       LEFT JOIN student_tbl s ON s.S_ID = cr.Created_By
+//       LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
+//       LEFT JOIN hobbies_tbl h ON shm.Hobby_ID = h.Hobby_ID
+//       ${whereClause}
+//       ORDER BY cr.Room_ID DESC
+//     `,
+//       params,
+//     );
+
+//     const total = rows.length;
+//     const active = rows.filter((r) => r.Is_Active === 1).length;
+//     const blocked = total - active;
+//     const totalMembers = rows.reduce(
+//       (sum, r) => sum + (r.member_count || 0),
+//       0,
+//     );
+//     const avgMembers = total > 0 ? Math.round(totalMembers / total) : 0;
+
+//     const summary = [
+//       { label: "Total Groups", value: total },
+//       { label: "Active", value: active },
+//       { label: "Blocked", value: blocked },
+//       { label: "Avg Members", value: avgMembers },
+//     ];
+
+//     const donut = [
+//       { label: "Active", value: active, color: "#9333ea" },
+//       { label: "Blocked", value: blocked, color: "#94a3b8" },
+//     ].filter((s) => s.value > 0);
+
+//     let bars = [];
+//     if (dateCol) {
+//       try {
+//         bars = await getMonthlyTrend("chat_rooms_tbl", dateCol);
+//       } catch {}
+//     }
+
+//     res.status(200).json({
+//       summary,
+//       chartData: { donut, bars },
+//       rows,
+//     });
+//   } catch (err) {
+//     console.error("Groups Report Error:", err);
+//     res.status(500).json({ error: "Failed to fetch groups report" });
+//   }
+// };
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // 3. NOTES REPORT  —  GET /admin/notes-report
+// // ─────────────────────────────────────────────────────────────────────────────
+// export const getNotesReport = async (req, res) => {
+//   try {
+//     const filters = req.body || {};
+//     let where = [];
+//     let params = [];
+
+//     if (filters.degree) {
+//       where.push("d.Degree_ID = ?");
+//       params.push(filters.degree);
+//     }
+
+//     if (filters.subject) {
+//       where.push("sub.Subject_ID = ?");
+//       params.push(filters.subject);
+//     }
+
+//     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+//     const [rows] = await db.query(
+//       `
+//       SELECT
+//         n.N_ID,
+//         n.File_Name,
+//         n.Description,
+//         DATE_FORMAT(n.Added_On, '%Y-%m-%d') AS Added_On,
+//         n.Is_Active,
+//         s.Name          AS student_name,
+//         sub.Subject_Name,
+//         d.Degree_Name
+//       FROM notes_tbl n
+//       LEFT JOIN student_tbl s ON s.S_ID = n.Added_By
+//       LEFT JOIN subject_tbl sub ON sub.Subject_ID = n.Subject_ID
+//       LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
+//       ${whereClause}
+//       ORDER BY n.Added_On DESC
+//     `,
+//       params,
+//     );
+
+//     const total = rows.length;
+//     const active = rows.filter((r) => r.Is_Active === 1).length;
+//     const blocked = total - active;
+
+//     // unique uploaders
+//     const uniqueAuthors = new Set(
+//       rows.map((r) => r.student_name).filter(Boolean),
+//     ).size;
+
+//     const summary = [
+//       { label: "Total Notes", value: total },
+//       { label: "Active", value: active },
+//       { label: "Blocked", value: blocked },
+//       { label: "Contributors", value: uniqueAuthors },
+//     ];
+
+//     const donut = [
+//       { label: "Active", value: active, color: "#e11d48" },
+//       { label: "Blocked", value: blocked, color: "#94a3b8" },
+//     ].filter((s) => s.value > 0);
+
+//     const bars = await getMonthlyTrend("notes_tbl", "Added_On");
+
+//     res.status(200).json({
+//       summary,
+//       chartData: { donut, bars },
+//       rows,
+//     });
+//   } catch (err) {
+//     console.error("Notes Report Error:", err);
+//     res.status(500).json({ error: "Failed to fetch notes report" });
+//   }
+// };
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // 4. Q&A REPORT  —  GET /admin/qna-report
+// // ─────────────────────────────────────────────────────────────────────────────
+// export const getQnAReport = async (req, res) => {
+//   try {
+//     const filters = req.body || {};
+//     let where = [];
+//     let params = [];
+
+//     if (filters.degree) {
+//       where.push("s.Degree_ID = ?");
+//       params.push(filters.degree);
+//     }
+
+//     if (filters.subject) {
+//       where.push("sub.Subject_ID = ?");
+//       params.push(filters.subject);
+//     }
+
+//     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+//     const [rows] = await db.query(`
+//       SELECT
+//         q.Q_ID,
+//         q.Question,
+//         DATE_FORMAT(q.Added_On, '%Y-%m-%d') AS Added_On,
+//         q.Is_Active,
+//         s.Name           AS student_name,
+//         sub.Subject_Name,
+//         COUNT(a.A_ID)    AS answer_count,
+//         (
+//           SELECT a2.Answer
+//           FROM answer_tbl a2
+//           WHERE a2.Q_ID = q.Q_ID
+//           ORDER BY a2.A_ID ASC
+//           LIMIT 1
+//         )                AS top_answer
+//       FROM question_tbl q
+//       LEFT JOIN student_tbl s ON s.S_ID = q.Added_By
+//       LEFT JOIN subject_tbl sub ON sub.Subject_ID = q.Subject_ID
+//       LEFT JOIN answer_tbl a ON a.Q_ID = q.Q_ID
+//       ${whereClause}
+//       GROUP BY q.Q_ID, q.Question, q.Added_On, q.Is_Active,
+//                s.Name, sub.Subject_Name
+//       ORDER BY q.Added_On DESC
+//     `);
+
+//     const total = rows.length;
+//     const active = rows.filter((r) => r.Is_Active === 1).length;
+//     const blocked = total - active;
+//     const answered = rows.filter((r) => r.answer_count > 0).length;
+//     const unanswered = total - answered;
+
+//     const summary = [
+//       { label: "Total Questions", value: total },
+//       { label: "Active", value: active },
+//       { label: "Answered", value: answered },
+//       { label: "Unanswered", value: unanswered },
+//     ];
+
+//     const donut = [
+//       { label: "Answered", value: answered, color: "#25eb63" },
+//       { label: "Unanswered", value: unanswered, color: "#f59e0b" },
+//       { label: "Blocked", value: blocked, color: "#94a3b8" },
+//     ].filter((s) => s.value > 0);
+
+//     const bars = await getMonthlyTrend("question_tbl", "Added_On");
+
+//     res.status(200).json({
+//       summary,
+//       chartData: { donut, bars },
+//       rows,
+//     });
+//   } catch (err) {
+//     console.error("Q&A Report Error:", err);
+//     res.status(500).json({ error: "Failed to fetch Q&A report" });
+//   }
+// };
+
+// // ─────────────────────────────────────────────────────────────────────────────
+// // 5. COMPLAINTS REPORT  —  GET /admin/complaints-report
+// // ─────────────────────────────────────────────────────────────────────────────
+// export const getComplaintsReport = async (req, res) => {
+//   try {
+//     const filters = req.body || {};
+//     let where = [];
+//     let params = [];
+
+//     if (filters.type) {
+//       where.push("c.Type = ?");
+//       params.push(filters.type);
+//     }
+
+//     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+//     // Discover FK column name in complaint_tbl dynamically
+//     const [[fkCol]] = await db.query(
+//       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+//        WHERE TABLE_NAME = 'complaint_tbl'
+//        AND COLUMN_NAME IN ('S_ID','Student_ID','student_id')
+//        LIMIT 1`,
+//     );
+//     const complaintFk = fkCol?.COLUMN_NAME || "S_ID";
+
+//     const complaintSQL =
+//       `
+//       SELECT
+//         c.Complaint_ID,
+//         c.Complaint_Text,
+//         c.Type AS Complaint_Type,
+//         DATE_FORMAT(c.Date, '%Y-%m-%d') AS Date,
+//         c.Status,
+//         s.Name  AS student_name,
+//         DATEDIFF(NOW(), c.Date) AS age_days
+//       FROM complaint_tbl c
+//       LEFT JOIN student_tbl s ON s.S_ID = c.` +
+//       "`" +
+//       `${complaintFk}` +
+//       "`" +
+//       `
+//       ${whereClause}
+//       ORDER BY c.Date DESC
+//     `;
+//     const [rows] = await db.query(complaintSQL, params);
+
+//     const total = rows.length;
+//     const resolved = rows.filter((r) => r.Status === "Resolved").length;
+//     const pending = rows.filter((r) => r.Status === "Pending").length;
+//     const inProgress = rows.filter((r) => r.Status === "In-Progress").length;
+//     const resRate = total > 0 ? Math.round((resolved / total) * 100) : 0;
+
+//     const summary = [
+//       { label: "Total", value: total },
+//       { label: "Resolved", value: resolved },
+//       { label: "Pending", value: pending },
+//       { label: "In-Progress", value: inProgress },
+//       { label: "Resolution %", value: resRate + "%" },
+//     ];
+
+//     const donut = [
+//       { label: "Resolved", value: resolved, color: "#25eb63" },
+//       { label: "Pending", value: pending, color: "#f59e0b" },
+//       { label: "In-Progress", value: inProgress, color: "#ef4444" },
+//     ].filter((s) => s.value > 0);
+
+//     const bars = await getMonthlyTrend("complaint_tbl", "Date");
+
+//     res.status(200).json({
+//       summary,
+//       chartData: { donut, bars },
+//       rows,
+//     });
+//   } catch (err) {
+//     console.error("Complaints Report Error:", err);
+//     res.status(500).json({ error: "Failed to fetch complaints report" });
+//   }
+// };
+
 const getMonthlyTrend = async (tableName, dateColumn) => {
   const [rows] = await db.query(`
     SELECT
@@ -856,80 +1329,189 @@ const getMonthlyTrend = async (tableName, dateColumn) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. EVENTS REPORT  —  GET /admin/events-report
+// 0. USERS REPORT  —  POST /admin/users-report
 // ─────────────────────────────────────────────────────────────────────────────
-export const getEventsReport = async (req, res) => {
+export const getUsersReport = async (req, res) => {
   try {
-    // All event rows with student name + degree
-    const [rows] = await db.query(`
-      SELECT
-        e.E_ID,
-        e.Description,
-        DATE_FORMAT(e.Event_Date, '%Y-%m-%d')  AS Event_Date,
-        DATE_FORMAT(e.Added_On,   '%Y-%m-%d')  AS Added_On,
-        e.Is_Active,
-        s.Name          AS student_name,
-        d.Degree_Name
-      FROM event_tbl e
-      LEFT JOIN student_tbl s ON s.S_ID  = e.Added_By
-      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
-      ORDER BY e.Added_On DESC
-    `);
+    const filters = req.body || {};
+    const where = [];
+    const params = [];
+
+    if (filters.degree) {
+      where.push("d.Degree_Name = ?");
+      params.push(filters.degree);
+    }
+    if (filters.college) {
+      where.push("col.College_Name = ?");
+      params.push(filters.college);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    const [rows] = await db.query(
+      `SELECT
+        s.S_ID,
+        s.Name,
+        s.Roll_No,
+        s.Email,
+        s.Year,
+        s.is_Active,
+        d.Degree_Name,
+        col.College_Name,
+        h.Hobby_Name AS hobby_name
+      FROM student_tbl s
+      LEFT JOIN degree_tbl d   ON d.Degree_ID   = s.Degree_ID
+      LEFT JOIN college_tbl col ON col.College_ID = s.College_ID
+      LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
+      LEFT JOIN hobbies_tbl h  ON shm.Hobby_ID  = h.Hobby_ID
+      ${whereClause}
+      ORDER BY s.Name ASC`,
+      params,
+    );
 
     const total = rows.length;
-    const active = rows.filter((r) => r.Is_Active === 1).length;
+    const active = rows.filter((r) => r.is_Active === 1).length;
     const blocked = total - active;
+    const degrees = [...new Set(rows.map((r) => r.Degree_Name).filter(Boolean))]
+      .length;
 
     const summary = [
-      { label: "Total Events", value: total },
+      { label: "Total Users", value: total },
       { label: "Active", value: active },
       { label: "Blocked", value: blocked },
+      { label: "Degrees", value: degrees },
     ];
 
     const donut = [
-      { label: "Active", value: active, color: "#10b981" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Active", value: active, color: "#0ea5e9" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
-    const bars = await getMonthlyTrend("event_tbl", "Added_On");
+    const degreeMap = rows.reduce((acc, r) => {
+      const d = r.Degree_Name || "Unknown";
+      acc[d] = (acc[d] || 0) + 1;
+      return acc;
+    }, {});
+    const bars = Object.entries(degreeMap)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
 
-    res.status(200).json({
-      summary,
-      chartData: { donut, bars },
-      rows,
-    });
+    res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
-    console.error("Events Report Error:", err);
-    res.status(500).json({ error: "Failed to fetch events report" });
+    console.error("Users Report Error:", err);
+    res.status(500).json({ error: err.message });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. GROUPS REPORT  —  GET /admin/groups-report
+// 1. EVENTS REPORT  —  POST /admin/events-report
+// ─────────────────────────────────────────────────────────────────────────────
+export const getEventsReport = async (req, res) => {
+  try {
+    const filters = req.body || {};
+    const where = [];
+
+    if (filters.event_status === "Upcoming")
+      where.push("e.Event_Date >= CURDATE()");
+    if (filters.event_status === "Past") where.push("e.Event_Date < CURDATE()");
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    const [rows] = await db.query(
+      `SELECT
+        e.E_ID,
+        e.Description,
+        DATE_FORMAT(e.Event_Date, '%Y-%m-%d') AS Event_Date,
+        DATE_FORMAT(e.Added_On,   '%Y-%m-%d') AS Added_On,
+        e.Is_Active,
+        s.Name AS student_name,
+        CASE WHEN e.Event_Date >= CURDATE() THEN 'Upcoming' ELSE 'Past' END AS event_status
+      FROM event_tbl e
+      LEFT JOIN student_tbl s ON s.S_ID = e.Added_By
+      ${whereClause}
+      ORDER BY e.Event_Date DESC`,
+      // no params — no placeholders used here
+    );
+
+    const total = rows.length;
+    const active = rows.filter((r) => r.Is_Active === 1).length;
+    const blocked = total - active;
+    const upcoming = rows.filter((r) => r.event_status === "Upcoming").length;
+    const past = total - upcoming;
+
+    const summary = [
+      { label: "Total Events", value: total },
+      { label: "Upcoming", value: upcoming },
+      { label: "Past", value: past },
+      { label: "Blocked", value: blocked },
+    ];
+
+    const donut = [
+      { label: "Upcoming", value: upcoming, color: "#f59e0b" },
+      { label: "Past", value: past, color: "#94a3b8" },
+    ].filter((s) => s.value > 0);
+
+    const bars = await getMonthlyTrend("event_tbl", "Event_Date");
+
+    res.status(200).json({ summary, chartData: { donut, bars }, rows });
+  } catch (err) {
+    console.error("Events Report Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. GROUPS REPORT  —  POST /admin/groups-report
 // ─────────────────────────────────────────────────────────────────────────────
 export const getGroupsReport = async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT
+    const filters = req.body || {};
+    const where = [];
+    const params = [];
+
+    // Filter by the room's associated hobby (via chat_rooms_tbl → hobbies_tbl direct FK)
+    // If your chat_rooms_tbl has a Hobby_ID column use this:
+    if (filters.hobby) {
+      where.push("h.Hobby_Name = ?");
+      params.push(filters.hobby);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    // Discover date column name dynamically
+    const [[colInfo]] = await db.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'chat_rooms_tbl'
+       AND COLUMN_NAME IN ('Created_On','Created_At')
+       LIMIT 1`,
+    );
+    const dateCol = colInfo?.COLUMN_NAME || null;
+    const dateExpr = dateCol
+      ? `DATE_FORMAT(cr.${dateCol}, '%Y-%m-%d')`
+      : `NULL`;
+
+    const [rows] = await db.query(
+      `SELECT
         cr.Room_ID,
         cr.Room_Name,
-        DATE_FORMAT(
-          cr.Created_On, '%Y-%m-%d'
-        ) AS Created_On,
+        ${dateExpr} AS Created_On,
         cr.Is_Active,
-        s.Name   AS student_name,
-        d.Degree_Name,
+        s.Name       AS student_name,
+        h.Hobby_Name AS hobby_name,
         (
           SELECT COUNT(*)
           FROM chat_room_members_tbl cm2
           WHERE cm2.Room_ID = cr.Room_ID
         ) AS member_count
       FROM chat_rooms_tbl cr
-      LEFT JOIN student_tbl s ON s.S_ID     = cr.Created_By
-      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
-      GROUP BY cr.Room_ID, cr.Room_Name, cr.Is_Active, s.Name, d.Degree_Name
-      ORDER BY cr.Room_ID DESC
-    `);
+      LEFT JOIN student_tbl s ON s.S_ID = cr.Created_By
+      LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
+      LEFT JOIN hobbies_tbl h  ON shm.Hobby_ID  = h.Hobby_ID
+      ${whereClause}
+      ORDER BY cr.Room_ID DESC`,
+      params,
+    );
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
@@ -948,58 +1530,66 @@ export const getGroupsReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Active", value: active, color: "#10b981" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Active", value: active, color: "#9333ea" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
-    // Try Created_On, fall back to empty array if column missing
     let bars = [];
-    try {
-      bars = await getMonthlyTrend("chat_rooms_tbl", "Created_On");
-    } catch {
+    if (dateCol) {
       try {
-        bars = await getMonthlyTrend("chat_rooms_tbl", "Created_At");
+        bars = await getMonthlyTrend("chat_rooms_tbl", dateCol);
       } catch {}
     }
 
-    res.status(200).json({
-      summary,
-      chartData: { donut, bars },
-      rows,
-    });
+    res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
     console.error("Groups Report Error:", err);
-    res.status(500).json({ error: "Failed to fetch groups report" });
+    res.status(500).json({ error: err.message });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. NOTES REPORT  —  GET /admin/notes-report
+// 3. NOTES REPORT  —  POST /admin/notes-report
 // ─────────────────────────────────────────────────────────────────────────────
 export const getNotesReport = async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT
+    const filters = req.body || {};
+    const where = [];
+    const params = [];
+
+    if (filters.degree) {
+      where.push("d.Degree_Name = ?");
+      params.push(filters.degree);
+    }
+    if (filters.subject) {
+      where.push("sub.Subject_Name = ?");
+      params.push(filters.subject);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    const [rows] = await db.query(
+      `SELECT
         n.N_ID,
         n.File_Name,
         n.Description,
         DATE_FORMAT(n.Added_On, '%Y-%m-%d') AS Added_On,
         n.Is_Active,
-        s.Name          AS student_name,
+        s.Name           AS student_name,
         sub.Subject_Name,
         d.Degree_Name
       FROM notes_tbl n
-      LEFT JOIN student_tbl  s   ON s.S_ID       = n.Added_By
-      LEFT JOIN subject_tbl  sub ON sub.Subject_ID = n.Subject_ID
-      LEFT JOIN degree_tbl   d   ON d.Degree_ID    = s.Degree_ID
-      ORDER BY n.Added_On DESC
-    `);
+      LEFT JOIN student_tbl s  ON s.S_ID       = n.Added_By
+      LEFT JOIN subject_tbl sub ON sub.Subject_ID = n.Subject_ID
+      LEFT JOIN degree_tbl d   ON d.Degree_ID   = s.Degree_ID
+      ${whereClause}
+      ORDER BY n.Added_On DESC`,
+      params,
+    );
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
     const blocked = total - active;
-
-    // unique uploaders
     const uniqueAuthors = new Set(
       rows.map((r) => r.student_name).filter(Boolean),
     ).size;
@@ -1012,47 +1602,67 @@ export const getNotesReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Active", value: active, color: "#10b981" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Active", value: active, color: "#e11d48" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("notes_tbl", "Added_On");
 
-    res.status(200).json({
-      summary,
-      chartData: { donut, bars },
-      rows,
-    });
+    res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
     console.error("Notes Report Error:", err);
-    res.status(500).json({ error: "Failed to fetch notes report" });
+    res.status(500).json({ error: err.message });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. Q&A REPORT  —  GET /admin/qna-report
+// 4. Q&A REPORT  —  POST /admin/qna-report
 // ─────────────────────────────────────────────────────────────────────────────
 export const getQnAReport = async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT
+    const filters = req.body || {};
+    const where = [];
+    const params = [];
+
+    if (filters.degree) {
+      where.push("d.Degree_Name = ?");
+      params.push(filters.degree);
+    }
+    if (filters.subject) {
+      where.push("sub.Subject_Name = ?");
+      params.push(filters.subject);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    const [rows] = await db.query(
+      `SELECT
         q.Q_ID,
         q.Question,
         DATE_FORMAT(q.Added_On, '%Y-%m-%d') AS Added_On,
         q.Is_Active,
-        s.Name            AS student_name,
+        s.Name           AS student_name,
         sub.Subject_Name,
         d.Degree_Name,
-        COUNT(a.A_ID)     AS answer_count
+        COUNT(a.A_ID)    AS answer_count,
+        (
+          SELECT a2.Answer
+          FROM answer_tbl a2
+          WHERE a2.Q_ID = q.Q_ID
+          ORDER BY a2.A_ID ASC
+          LIMIT 1
+        ) AS top_answer
       FROM question_tbl q
-      LEFT JOIN student_tbl  s   ON s.S_ID        = q.Added_By
-      LEFT JOIN subject_tbl  sub ON sub.Subject_ID  = q.Subject_ID
-      LEFT JOIN degree_tbl   d   ON d.Degree_ID     = s.Degree_ID
-      LEFT JOIN answer_tbl   a   ON a.Q_ID          = q.Q_ID
+      LEFT JOIN student_tbl s   ON s.S_ID        = q.Added_By
+      LEFT JOIN degree_tbl d    ON d.Degree_ID    = s.Degree_ID
+      LEFT JOIN subject_tbl sub ON sub.Subject_ID = q.Subject_ID
+      LEFT JOIN answer_tbl a    ON a.Q_ID         = q.Q_ID
+      ${whereClause}
       GROUP BY q.Q_ID, q.Question, q.Added_On, q.Is_Active,
                s.Name, sub.Subject_Name, d.Degree_Name
-      ORDER BY q.Added_On DESC
-    `);
+      ORDER BY q.Added_On DESC`,
+      params,
+    );
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
@@ -1068,43 +1678,60 @@ export const getQnAReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Answered", value: answered, color: "#10b981" },
+      { label: "Answered", value: answered, color: "#25eb63" },
       { label: "Unanswered", value: unanswered, color: "#f59e0b" },
-      { label: "Blocked", value: blocked, color: "#ef4444" },
+      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("question_tbl", "Added_On");
 
-    res.status(200).json({
-      summary,
-      chartData: { donut, bars },
-      rows,
-    });
+    res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
     console.error("Q&A Report Error:", err);
-    res.status(500).json({ error: "Failed to fetch Q&A report" });
+    res.status(500).json({ error: err.message });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. COMPLAINTS REPORT  —  GET /admin/complaints-report
+// 5. COMPLAINTS REPORT  —  POST /admin/complaints-report
 // ─────────────────────────────────────────────────────────────────────────────
 export const getComplaintsReport = async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT
+    const filters = req.body || {};
+    const where = [];
+    const params = [];
+
+    if (filters.type) {
+      where.push("c.Type = ?");
+      params.push(filters.type);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    // Discover FK column name dynamically
+    const [[fkCol]] = await db.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'complaint_tbl'
+       AND COLUMN_NAME IN ('S_ID','Student_ID','student_id')
+       LIMIT 1`,
+    );
+    const complaintFk = fkCol?.COLUMN_NAME || "S_ID";
+
+    const [rows] = await db.query(
+      `SELECT
         c.Complaint_ID,
         c.Complaint_Text,
+        c.Type AS Complaint_Type,
         DATE_FORMAT(c.Date, '%Y-%m-%d') AS Date,
         c.Status,
-        s.Name       AS student_name,
-        d.Degree_Name,
+        s.Name AS student_name,
         DATEDIFF(NOW(), c.Date) AS age_days
       FROM complaint_tbl c
-      LEFT JOIN student_tbl s ON s.S_ID = c.Student_ID
-      LEFT JOIN degree_tbl  d ON d.Degree_ID = s.Degree_ID
-      ORDER BY c.Date DESC
-    `);
+      LEFT JOIN student_tbl s ON s.S_ID = c.${complaintFk}
+      ${whereClause}
+      ORDER BY c.Date DESC`,
+      params,
+    );
 
     const total = rows.length;
     const resolved = rows.filter((r) => r.Status === "Resolved").length;
@@ -1121,20 +1748,16 @@ export const getComplaintsReport = async (req, res) => {
     ];
 
     const donut = [
-      { label: "Resolved", value: resolved, color: "#10b981" },
+      { label: "Resolved", value: resolved, color: "#25eb63" },
       { label: "Pending", value: pending, color: "#f59e0b" },
-      { label: "In-Progress", value: inProgress, color: "#6366f1" },
+      { label: "In-Progress", value: inProgress, color: "#ef4444" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("complaint_tbl", "Date");
 
-    res.status(200).json({
-      summary,
-      chartData: { donut, bars },
-      rows,
-    });
+    res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
     console.error("Complaints Report Error:", err);
-    res.status(500).json({ error: "Failed to fetch complaints report" });
+    res.status(500).json({ error: err.message });
   }
 };
