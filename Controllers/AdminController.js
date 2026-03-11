@@ -842,11 +842,6 @@ export const unblockStudent = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER: build monthly trend for last 6 months from a date column
-// tableName   — e.g. "event_tbl"
-// dateColumn  — e.g. "Event_Date"
-// ─────────────────────────────────────────────────────────────────────────────
 const getMonthlyTrend = async (tableName, dateColumn) => {
   const [rows] = await db.query(`
     SELECT
@@ -865,7 +860,24 @@ const getMonthlyTrend = async (tableName, dateColumn) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getUsersReport = async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const filters = req.body || {};
+    let where = [];
+    let params = [];
+
+    if (filters.degree) {
+      where.push("s.Degree_ID = ?");
+      params.push(filters.degree);
+    }
+
+    if (filters.college) {
+      where.push("s.College_ID = ?");
+      params.push(filters.college);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+
+    const [rows] = await db.query(
+      `
       SELECT
         s.S_ID,
         s.Name,
@@ -874,13 +886,16 @@ export const getUsersReport = async (req, res) => {
         s.Year,
         s.is_Active,
         d.Degree_Name,
-        h.Hobby_Name  AS hobby_name
+        h.Hobby_Name AS hobby_name
       FROM student_tbl s
-      LEFT JOIN degree_tbl  d ON d.Degree_ID  = s.Degree_ID
+      LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
       LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
       LEFT JOIN hobbies_tbl h ON shm.Hobby_ID = h.Hobby_ID
+      ${whereClause}
       ORDER BY s.Name ASC
-    `);
+    `,
+      params,
+    );
 
     const total = rows.length;
     const active = rows.filter((r) => r.is_Active === 1).length;
@@ -918,11 +933,21 @@ export const getUsersReport = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. EVENTS REPORT  —  GET /admin/events-report
-// ─────────────────────────────────────────────────────────────────────────────
 export const getEventsReport = async (req, res) => {
   try {
+    const filters = req.body || {};
+    let where = [];
+    let params = [];
+
+    if (filters.event_status === "Upcoming") {
+      where.push("e.Event_Date >= CURDATE()");
+    }
+
+    if (filters.event_status === "Past") {
+      where.push("e.Event_Date < CURDATE()");
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
     const [rows] = await db.query(`
       SELECT
         e.E_ID,
@@ -934,6 +959,7 @@ export const getEventsReport = async (req, res) => {
         CASE WHEN e.Event_Date >= CURDATE() THEN 'Upcoming' ELSE 'Past' END AS event_status
       FROM event_tbl e
       LEFT JOIN student_tbl s ON s.S_ID = e.Added_By
+      ${whereClause}
       ORDER BY e.Event_Date DESC
     `);
 
@@ -973,6 +999,16 @@ export const getEventsReport = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getGroupsReport = async (req, res) => {
   try {
+    const filters = req.body || {};
+    let where = [];
+    let params = [];
+
+    if (filters.hobby) {
+      where.push("h.Hobby_ID = ?");
+      params.push(filters.hobby);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
     // Fetch column names so we can adapt dynamically
     const [[colInfo]] = await db.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -985,7 +1021,8 @@ export const getGroupsReport = async (req, res) => {
       ? `DATE_FORMAT(cr.${dateCol}, '%Y-%m-%d')`
       : `NULL`;
 
-    const [rows] = await db.query(`
+    const [rows] = await db.query(
+      `
       SELECT
         cr.Room_ID,
         cr.Room_Name,
@@ -1002,8 +1039,11 @@ export const getGroupsReport = async (req, res) => {
       LEFT JOIN student_tbl s ON s.S_ID = cr.Created_By
       LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
       LEFT JOIN hobbies_tbl h ON shm.Hobby_ID = h.Hobby_ID
+      ${whereClause}
       ORDER BY cr.Room_ID DESC
-    `);
+    `,
+      params,
+    );
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
@@ -1049,7 +1089,23 @@ export const getGroupsReport = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getNotesReport = async (req, res) => {
   try {
-    const [rows] = await db.query(`
+    const filters = req.body || {};
+    let where = [];
+    let params = [];
+
+    if (filters.degree) {
+      where.push("d.Degree_ID = ?");
+      params.push(filters.degree);
+    }
+
+    if (filters.subject) {
+      where.push("sub.Subject_ID = ?");
+      params.push(filters.subject);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
+    const [rows] = await db.query(
+      `
       SELECT
         n.N_ID,
         n.File_Name,
@@ -1060,11 +1116,14 @@ export const getNotesReport = async (req, res) => {
         sub.Subject_Name,
         d.Degree_Name
       FROM notes_tbl n
-      LEFT JOIN student_tbl  s   ON s.S_ID       = n.Added_By
-      LEFT JOIN subject_tbl  sub ON sub.Subject_ID = n.Subject_ID
-      LEFT JOIN degree_tbl   d   ON d.Degree_ID    = s.Degree_ID
+      LEFT JOIN student_tbl s ON s.S_ID = n.Added_By
+      LEFT JOIN subject_tbl sub ON sub.Subject_ID = n.Subject_ID
+      LEFT JOIN degree_tbl d ON d.Degree_ID = s.Degree_ID
+      ${whereClause}
       ORDER BY n.Added_On DESC
-    `);
+    `,
+      params,
+    );
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
@@ -1105,6 +1164,21 @@ export const getNotesReport = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getQnAReport = async (req, res) => {
   try {
+    const filters = req.body || {};
+    let where = [];
+    let params = [];
+
+    if (filters.degree) {
+      where.push("s.Degree_ID = ?");
+      params.push(filters.degree);
+    }
+
+    if (filters.subject) {
+      where.push("sub.Subject_ID = ?");
+      params.push(filters.subject);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
     const [rows] = await db.query(`
       SELECT
         q.Q_ID,
@@ -1122,9 +1196,10 @@ export const getQnAReport = async (req, res) => {
           LIMIT 1
         )                AS top_answer
       FROM question_tbl q
-      LEFT JOIN student_tbl  s   ON s.S_ID         = q.Added_By
-      LEFT JOIN subject_tbl  sub ON sub.Subject_ID  = q.Subject_ID
-      LEFT JOIN answer_tbl   a   ON a.Q_ID          = q.Q_ID
+      LEFT JOIN student_tbl s ON s.S_ID = q.Added_By
+      LEFT JOIN subject_tbl sub ON sub.Subject_ID = q.Subject_ID
+      LEFT JOIN answer_tbl a ON a.Q_ID = q.Q_ID
+      ${whereClause}
       GROUP BY q.Q_ID, q.Question, q.Added_On, q.Is_Active,
                s.Name, sub.Subject_Name
       ORDER BY q.Added_On DESC
@@ -1167,6 +1242,16 @@ export const getQnAReport = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 export const getComplaintsReport = async (req, res) => {
   try {
+    const filters = req.body || {};
+    let where = [];
+    let params = [];
+
+    if (filters.type) {
+      where.push("c.Type = ?");
+      params.push(filters.type);
+    }
+
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
     // Discover FK column name in complaint_tbl dynamically
     const [[fkCol]] = await db.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -1181,7 +1266,7 @@ export const getComplaintsReport = async (req, res) => {
       SELECT
         c.Complaint_ID,
         c.Complaint_Text,
-        c.Type,
+        c.Type AS Complaint_Type,
         DATE_FORMAT(c.Date, '%Y-%m-%d') AS Date,
         c.Status,
         s.Name  AS student_name,
@@ -1192,9 +1277,10 @@ export const getComplaintsReport = async (req, res) => {
       `${complaintFk}` +
       "`" +
       `
+      ${whereClause}
       ORDER BY c.Date DESC
     `;
-    const [rows] = await db.query(complaintSQL);
+    const [rows] = await db.query(complaintSQL, params);
 
     const total = rows.length;
     const resolved = rows.filter((r) => r.Status === "Resolved").length;
