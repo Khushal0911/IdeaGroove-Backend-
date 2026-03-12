@@ -165,13 +165,117 @@ export const getAnswersByQuestion = async (req, res) => {
 export const getUserQuestions = async (req, res) => {
   try {
     const userId = req.params.id;
-    const [questions] = await db.query(
-      `SELECT * FROM question_tbl WHERE Added_By = ? AND Is_Active = 1 ORDER BY Added_On DESC`,
-      [userId],
+    const [countResult] = await db.query(
+      `SELECT COUNT(DISTINCT q.Q_ID) AS total
+       FROM question_tbl q
+       WHERE q.Is_Active = 1
+         AND (
+           q.Added_By = ?
+           OR EXISTS (
+             SELECT 1
+             FROM answer_tbl au
+             WHERE au.Q_ID = q.Q_ID
+               AND au.Answered_By = ?
+               AND au.Is_Active = 1
+           )
+         )`,
+      [userId, userId],
     );
+
+    const query = `
+      SELECT
+        q.Q_ID,
+        q.Question,
+        qs.username AS Question_Author,
+        qs.S_ID AS Author_Id,
+        qs.Profile_Pic,
+        q.Added_On,
+        q.Is_Active,
+        d.Degree_Name,
+        d.Degree_ID,
+        s.Subject_Name,
+        s.Subject_ID,
+        CASE
+          WHEN q.Added_By = ? THEN 1
+          ELSE 0
+        END AS Is_Own_Question,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM answer_tbl au
+            WHERE au.Q_ID = q.Q_ID
+              AND au.Answered_By = ?
+              AND au.Is_Active = 1
+          ) THEN 1
+          ELSE 0
+        END AS Has_User_Answer,
+        COALESCE(
+          (
+            SELECT MAX(au.Answered_On)
+            FROM answer_tbl au
+            WHERE au.Q_ID = q.Q_ID
+              AND au.Answered_By = ?
+              AND au.Is_Active = 1
+          ),
+          q.Added_On
+        ) AS Activity_On,
+
+        (
+          SELECT COUNT(*)
+          FROM answer_tbl a2
+          WHERE a2.Q_ID = q.Q_ID
+            AND a2.Is_Active = 1
+        ) AS Total_Answers,
+
+        (
+          SELECT COALESCE(
+            JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'A_ID', a3.A_ID,
+                'Answer', a3.Answer,
+                'Answer_Author', s2.username,
+                'Answered_On', a3.Answered_On,
+                'Answered_By', a3.Answered_By,
+                'Is_Active', a3.Is_Active
+              )
+            ),
+            JSON_ARRAY()
+          )
+          FROM answer_tbl a3
+          LEFT JOIN student_tbl s2 ON a3.Answered_By = s2.S_ID
+          WHERE a3.Q_ID = q.Q_ID
+            AND a3.Is_Active = 1
+        ) AS Answers
+
+      FROM question_tbl q
+      LEFT JOIN student_tbl qs ON q.Added_By = qs.S_ID
+      LEFT JOIN degree_tbl d ON q.Degree_ID = d.Degree_ID
+      LEFT JOIN subject_tbl s ON q.Subject_ID = s.Subject_ID
+      WHERE q.Is_Active = 1
+        AND (
+          q.Added_By = ?
+          OR EXISTS (
+            SELECT 1
+            FROM answer_tbl au
+            WHERE au.Q_ID = q.Q_ID
+              AND au.Answered_By = ?
+              AND au.Is_Active = 1
+          )
+        )
+      ORDER BY Activity_On DESC, q.Added_On DESC
+    `;
+
+    const [questions] = await db.query(query, [
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+    ]);
 
     res.status(200).json({
       success: true,
+      total: countResult[0].total,
       data: questions,
     });
   } catch (err) {

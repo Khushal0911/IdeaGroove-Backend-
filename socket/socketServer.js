@@ -64,11 +64,23 @@ export const initSocket = (httpServer) => {
                c.File_Path,
                c.Encryption_IV,
                c.Sent_On, c.Is_Edited, c.Is_Deleted,
-               EXISTS(
-                 SELECT 1 FROM chats_seen_tbl cs
-                 WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = ?
-                 LIMIT 1
-               ) AS Is_Seen
+               CASE
+                 WHEN c.Sender_ID = ? THEN EXISTS(
+                   SELECT 1
+                   FROM chats_seen_tbl cs
+                   JOIN chat_room_members_tbl m2 ON cs.Member_ID = m2.Member_ID
+                   WHERE cs.Message_ID = c.Message_ID
+                     AND m2.Room_ID = c.Room_ID
+                     AND m2.Is_Active = 1
+                     AND m2.Student_ID != c.Sender_ID
+                   LIMIT 1
+                 )
+                 ELSE EXISTS(
+                   SELECT 1 FROM chats_seen_tbl cs
+                   WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = ?
+                   LIMIT 1
+                 )
+               END AS Is_Seen
              FROM chats_tbl c
              JOIN student_tbl s ON c.Sender_ID = s.S_ID
              WHERE c.Room_ID = ?
@@ -76,7 +88,7 @@ export const initSocket = (httpServer) => {
              LIMIT 50
            ) recent_messages
            ORDER BY recent_messages.Sent_On ASC`,
-          [memberId, roomId],
+          [studentId, memberId, roomId],
         );
 
         const decryptedMessages = messages.map((msg) => {
@@ -220,13 +232,37 @@ export const initSocket = (httpServer) => {
              s.name AS Sender_Name,
              s.Profile_Pic AS Sender_Profile_Pic,
              c.Message_Type, c.Message_Text, c.File_Path,
-             c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted
+             c.Encryption_IV, c.Sent_On, c.Is_Edited, c.Is_Deleted,
+             CASE
+               WHEN c.Sender_ID = ? THEN EXISTS(
+                 SELECT 1
+                 FROM chats_seen_tbl cs
+                 JOIN chat_room_members_tbl m2 ON cs.Member_ID = m2.Member_ID
+                 WHERE cs.Message_ID = c.Message_ID
+                   AND m2.Room_ID = c.Room_ID
+                   AND m2.Is_Active = 1
+                   AND m2.Student_ID != c.Sender_ID
+                 LIMIT 1
+               )
+               ELSE EXISTS(
+                 SELECT 1 FROM chats_seen_tbl cs
+                 WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = (
+                   SELECT Member_ID
+                   FROM chat_room_members_tbl
+                   WHERE Room_ID = c.Room_ID
+                     AND Student_ID = ?
+                     AND Is_Active = 1
+                   LIMIT 1
+                 )
+                 LIMIT 1
+               )
+             END AS Is_Seen
            FROM chats_tbl c
            JOIN student_tbl s ON c.Sender_ID = s.S_ID
            WHERE c.Room_ID = ?
            ORDER BY c.Sent_On ASC
            LIMIT 50 OFFSET ?`,
-          [roomId, offset],
+          [studentId, studentId, roomId, offset],
         );
 
         const decryptedMessages = messages.map((msg) => {

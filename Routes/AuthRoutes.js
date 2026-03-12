@@ -2,6 +2,7 @@ import express from "express";
 import {
   userLogin,
   userLogout,
+  getCurrentSession,
   userRegister,
   forgotPassword,
   resetPassword,
@@ -15,6 +16,7 @@ import { uploadProfilePic } from "../config/cloud.js";
 import { updateComplaintStatus } from "../Controllers/AdminController.js";
 
 authRouter.post("/login", userLogin);
+authRouter.get("/session", getCurrentSession);
 authRouter.post("/signup", uploadProfilePic.single("image"), userRegister);
 authRouter.post("/logout", userLogout);
 authRouter.post("/forgot-password", forgotPassword);
