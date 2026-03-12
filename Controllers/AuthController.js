@@ -389,6 +389,25 @@ export const userLogin = async (req, res, next) => {
   }
 };
 
+export const getCurrentSession = (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: "Unauthorized. Please log in." });
+  }
+
+  return res.status(200).json({
+    user: {
+      id: req.user.S_ID,
+      S_ID: req.user.S_ID,
+      Name: req.user.Name,
+      Username: req.user.Username,
+      Email: req.user.Email,
+      Roll_No: req.user.Roll_No,
+      Year: req.user.Year,
+      Profile_Pic: req.user.Profile_Pic,
+    },
+  });
+};
+
 export const userLogout = (req, res) => {
   req.logout((err) => {
     if (err) return res.status(500).json({ error: "Logout failed" });

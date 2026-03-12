@@ -1,4 +1,54 @@
 import db from "../config/db.js";
+import { cloudinary } from "../config/cloud.js";
+
+const extractCloudinaryAssetDetails = (fileUrl, fallbackFileName = "") => {
+  if (!fileUrl) return null;
+
+  try {
+    const { pathname } = new URL(fileUrl);
+    const uploadMarker = "/upload/";
+    const uploadIndex = pathname.indexOf(uploadMarker);
+
+    if (uploadIndex === -1) return null;
+
+    const resourcePath = pathname.slice(1, uploadIndex);
+    const resourceType = resourcePath.split("/")[1] || "image";
+
+    const rawAssetPath = pathname
+      .slice(uploadIndex + uploadMarker.length)
+      .split("/")
+      .filter(Boolean);
+
+    const versionIndex = rawAssetPath.findIndex((part) => /^v\d+$/.test(part));
+    const publicIdParts =
+      versionIndex >= 0
+        ? rawAssetPath.slice(versionIndex + 1)
+        : rawAssetPath;
+
+    if (publicIdParts.length === 0) return null;
+
+    const fileSegment = publicIdParts[publicIdParts.length - 1];
+    const dotIndex = fileSegment.lastIndexOf(".");
+    const formatFromUrl =
+      dotIndex >= 0 ? fileSegment.slice(dotIndex + 1).toLowerCase() : "";
+    const formatFromName =
+      fallbackFileName.split(".").pop()?.toLowerCase() || "";
+    const format = formatFromUrl || formatFromName || "pdf";
+    const normalizedFileSegment =
+      dotIndex >= 0 ? fileSegment.slice(0, dotIndex) : fileSegment;
+
+    return {
+      resourceType,
+      format,
+      publicId: [
+        ...publicIdParts.slice(0, -1),
+        normalizedFileSegment,
+      ].join("/"),
+    };
+  } catch {
+    return null;
+  }
+};
 
 export const getNotes = async (req, res) => {
   try {
@@ -100,9 +150,24 @@ export const getUserNotes = async (req, res) => {
     const total = countResult[0].total;
 
     const query = `
-      SELECT n.*, s.Username as Author 
-      FROM notes_tbl n 
-      LEFT JOIN student_tbl s ON n.Added_By = s.S_ID
+      SELECT
+        n.N_ID,
+        n.Note_File,
+        n.File_Name,
+        n.Description,
+        n.Is_Active,
+        n.Added_on,
+        n.Added_By,
+        s.Username AS Author,
+        s.S_ID AS Author_ID,
+        d.Degree_Name,
+        d.Degree_ID,
+        sub.Subject_Name,
+        sub.Subject_ID
+      FROM notes_tbl n
+      LEFT JOIN student_tbl s   ON n.Added_By = s.S_ID
+      LEFT JOIN degree_tbl d    ON n.Degree_ID = d.Degree_ID
+      LEFT JOIN subject_tbl sub ON n.Subject_ID = sub.Subject_ID
       WHERE n.Added_By = ? AND n.Is_Active = 1
       ORDER BY n.Added_on DESC
       LIMIT ? OFFSET ?`;
@@ -121,6 +186,58 @@ export const getUserNotes = async (req, res) => {
     res
       .status(500)
       .json({ status: false, error: "Failed to fetch user notes" });
+  }
+};
+
+export const getNoteDownloadUrl = async (req, res) => {
+  try {
+    const noteId = req.params.id;
+    const [result] = await db.query(
+      `SELECT N_ID, Note_File, File_Name
+       FROM notes_tbl
+       WHERE N_ID = ? AND Is_Active = 1
+       LIMIT 1`,
+      [noteId],
+    );
+
+    const note = result[0];
+
+    if (!note?.Note_File) {
+      return res
+        .status(404)
+        .json({ status: false, error: "Note file not found" });
+    }
+
+    const asset = extractCloudinaryAssetDetails(note.Note_File, note.File_Name);
+
+    if (!asset) {
+      return res.status(200).json({
+        status: true,
+        url: note.Note_File,
+      });
+    }
+
+    const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
+    const signedUrl = cloudinary.utils.private_download_url(
+      asset.publicId,
+      asset.format,
+      {
+        resource_type: asset.resourceType,
+        type: "upload",
+        attachment: true,
+        expires_at: expiresAt,
+      },
+    );
+
+    res.status(200).json({
+      status: true,
+      url: signedUrl,
+    });
+  } catch (err) {
+    console.error("Generate Note Download URL Error:", err);
+    res
+      .status(500)
+      .json({ status: false, error: "Failed to generate download link" });
   }
 };
 

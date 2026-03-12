@@ -118,33 +118,97 @@ export const getUserGroups = async (req, res) => {
     const offset = (page - 1) * limit;
 
     const countQuery = `
-      SELECT COUNT(*) as total 
-      FROM chat_room_members_tbl 
-      WHERE Student_ID = ? AND Is_Active = 1`;
+      SELECT COUNT(DISTINCT r.Room_ID) AS total
+      FROM chat_rooms_tbl r
+      INNER JOIN chat_room_members_tbl m_self
+        ON r.Room_ID = m_self.Room_ID
+        AND m_self.Student_ID = ?
+        AND m_self.Is_Active = 1
+      WHERE r.Is_Active = 1
+        AND LOWER(r.Room_Type) = 'group'`;
 
     const [countResult] = await db.query(countQuery, [userId]);
     const total = countResult[0].total;
 
     const query = `
       SELECT 
-        r.Room_ID, 
-        r.Room_Name, 
-        r.Based_On, 
-        r.Description, 
-        m.Role, 
-        m.Joined_on
+        r.Room_ID,
+        r.Room_Name,
+        r.Room_Type,
+        r.Created_On,
+        r.Created_By,
+        r.Is_Active,
+        r.Description,
+        r.Based_On,
+        s.username AS Creator_Name,
+        s.S_ID AS Creator_ID,
+        h.Hobby_Name,
+        m_self.Role,
+        m_self.Joined_on AS Joined_On,
+        CASE
+          WHEN r.Created_By = ? THEN 'created'
+          ELSE 'joined'
+        END AS Group_Relationship,
+        COALESCE(m_self.Joined_on, r.Created_On) AS Activity_On,
+        COUNT(DISTINCT m.Student_ID) AS Member_Count,
+
+        (
+          SELECT COALESCE(
+            JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'role', rm.Role,
+                'username', s2.username,
+                'name', s2.name,
+                'Profile_Pic', s2.Profile_Pic,
+                'Student_ID', s2.S_ID
+              )
+            ),
+            JSON_ARRAY()
+          )
+          FROM chat_room_members_tbl rm
+          LEFT JOIN student_tbl s2 ON rm.Student_ID = s2.S_ID
+          WHERE rm.Room_ID = r.Room_ID AND rm.Is_Active = 1
+        ) AS Members
       FROM chat_rooms_tbl r
-      INNER JOIN chat_room_members_tbl m ON r.Room_ID = m.Room_ID
-      WHERE m.Student_ID = ? 
-        AND m.Is_Active = 1 
-        AND r.Is_Active = 1
-      ORDER BY m.Joined_on DESC
+      INNER JOIN chat_room_members_tbl m_self
+        ON r.Room_ID = m_self.Room_ID
+        AND m_self.Student_ID = ?
+        AND m_self.Is_Active = 1
+      LEFT JOIN student_tbl s ON r.Created_By = s.S_ID
+      LEFT JOIN hobbies_tbl h ON r.Based_On = h.Hobby_ID
+      LEFT JOIN chat_room_members_tbl m
+        ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+      WHERE r.Is_Active = 1
+        AND LOWER(r.Room_Type) = 'group'
+      GROUP BY
+        r.Room_ID,
+        r.Room_Name,
+        r.Room_Type,
+        r.Created_On,
+        r.Created_By,
+        r.Is_Active,
+        r.Description,
+        r.Based_On,
+        s.username,
+        s.S_ID,
+        h.Hobby_Name,
+        m_self.Role,
+        m_self.Joined_on
+      ORDER BY Activity_On DESC, r.Created_On DESC
       LIMIT ? OFFSET ?
     `;
 
-    const [myGroups] = await db.query(query, [userId, limit, offset]);
+    const [myGroups] = await db.query(query, [userId, userId, limit, offset]);
 
-    if (myGroups.length === 0) {
+    const formattedGroups = myGroups.map((group) => ({
+      ...group,
+      Members:
+        typeof group.Members === "string"
+          ? JSON.parse(group.Members)
+          : group.Members,
+    }));
+
+    if (formattedGroups.length === 0) {
       return res.status(200).json({
         status: true,
         message: "You haven't joined any groups yet.",
@@ -155,7 +219,7 @@ export const getUserGroups = async (req, res) => {
 
     res.status(200).json({
       status: true,
-      data: myGroups,
+      data: formattedGroups,
       pagination: {
         total,
         page,

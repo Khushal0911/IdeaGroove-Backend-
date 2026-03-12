@@ -91,43 +91,70 @@ export const getUserChatRooms = async (req, res) => {
         r.Room_Name,
         (
           SELECT Message_Text FROM chats_tbl
-          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          WHERE Room_ID = r.Room_ID
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Message,
         (
           SELECT Message_Type FROM chats_tbl
-          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          WHERE Room_ID = r.Room_ID
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Type,
         (
           SELECT Encryption_IV FROM chats_tbl
-          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          WHERE Room_ID = r.Room_ID
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_IV,
         (
           SELECT Sent_On FROM chats_tbl
-          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          WHERE Room_ID = r.Room_ID
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Message_At,
         (
           SELECT Sender_ID FROM chats_tbl
-          WHERE Room_ID = r.Room_ID AND Is_Deleted = 0
+          WHERE Room_ID = r.Room_ID
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Sender_ID,
+        (
+          SELECT Is_Deleted FROM chats_tbl
+          WHERE Room_ID = r.Room_ID
+          ORDER BY Sent_On DESC LIMIT 1
+        ) AS Last_Is_Deleted,
         (
           SELECT s3.name
           FROM chats_tbl c3
           JOIN student_tbl s3 ON c3.Sender_ID = s3.S_ID
-          WHERE c3.Room_ID = r.Room_ID AND c3.Is_Deleted = 0
+          WHERE c3.Room_ID = r.Room_ID
           ORDER BY c3.Sent_On DESC LIMIT 1
         ) AS Last_Sender_Name,
         (
           SELECT s3.username
           FROM chats_tbl c3
           JOIN student_tbl s3 ON c3.Sender_ID = s3.S_ID
-          WHERE c3.Room_ID = r.Room_ID AND c3.Is_Deleted = 0
+          WHERE c3.Room_ID = r.Room_ID
           ORDER BY c3.Sent_On DESC LIMIT 1
         ) AS Last_Sender_Username,
+        (
+          SELECT EXISTS(
+            SELECT 1
+            FROM chats_seen_tbl cs4
+            JOIN chat_room_members_tbl m4 ON cs4.Member_ID = m4.Member_ID
+            WHERE cs4.Message_ID = (
+              SELECT c4.Message_ID
+              FROM chats_tbl c4
+              WHERE c4.Room_ID = r.Room_ID
+              ORDER BY c4.Sent_On DESC LIMIT 1
+            )
+              AND m4.Room_ID = r.Room_ID
+              AND m4.Is_Active = 1
+              AND m4.Student_ID != (
+                SELECT c5.Sender_ID
+                FROM chats_tbl c5
+                WHERE c5.Room_ID = r.Room_ID
+                ORDER BY c5.Sent_On DESC LIMIT 1
+              )
+            LIMIT 1
+          )
+        ) AS Last_Is_Seen,
         /* ✅ FIX: Unread_Count was missing — now properly counted per member */
         (
           SELECT COUNT(*)
@@ -166,7 +193,10 @@ export const getUserChatRooms = async (req, res) => {
     );
 
     const formatted = rooms.map((room) => {
-      if (room.Last_Message && room.Last_IV) {
+      if (room.Last_Is_Deleted) {
+        room.Last_Message = "Message deleted";
+        room.Raw_Path = null;
+      } else if (room.Last_Message && room.Last_IV) {
         try {
           const decrypted = decryptMessage(room.Last_Message, room.Last_IV);
           room.Last_Message =
