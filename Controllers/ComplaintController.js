@@ -1,7 +1,5 @@
 import db from "../config/db.js";
 
-
-
 export const getAllComplaints = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -22,7 +20,7 @@ export const getAllComplaints = async (req, res) => {
     // Get total count for pagination
     const [countResult] = await db.query(
       `SELECT COUNT(*) as total FROM complaint_tbl c WHERE ${whereClause}`,
-      queryParams
+      queryParams,
     );
     const total = countResult[0].total;
 
@@ -51,10 +49,11 @@ export const getAllComplaints = async (req, res) => {
     });
   } catch (err) {
     console.error("Fetch Complaints Error:", err);
-    res.status(500).json({ status: false, error: "Failed to fetch complaints" });
+    res
+      .status(500)
+      .json({ status: false, error: "Failed to fetch complaints" });
   }
 };
-
 
 export const getUserComplaints = async (req, res) => {
   try {
@@ -65,7 +64,7 @@ export const getUserComplaints = async (req, res) => {
 
     const [countResult] = await db.query(
       `SELECT COUNT(*) as total FROM complaint_tbl WHERE Student_ID = ? AND Is_Active = 1`,
-      [id]
+      [id],
     );
     const total = countResult[0].total;
 
@@ -113,14 +112,15 @@ LIMIT ? OFFSET ?
     });
   } catch (err) {
     console.error("User Complaints Error:", err);
-    res.status(500).json({ status: false, error: "Failed to fetch your complaints" });
+    res
+      .status(500)
+      .json({ status: false, error: "Failed to fetch your complaints" });
   }
 };
 
-
 export const addComplaint = async (req, res) => {
-  const { Student_ID,Type, Content_ID, Complaint_Text } = req.body;
-
+  const { Student_ID, Type, Content_ID, Complaint_Text } = req.body;
+  console.log(Type);
   const allowedTypes = [
     "question",
     "answer",
@@ -144,14 +144,13 @@ export const addComplaint = async (req, res) => {
       (Student_ID,Type, Content_ID, Complaint_Text)
       VALUES (?, ?, ?, ?)
       `,
-      [Student_ID, Type, Content_ID, Complaint_Text]
+      [Student_ID, Type, Content_ID, Complaint_Text],
     );
 
     res.status(201).json({
       message: "Complaint submitted successfully",
       complaint_id: result.insertId,
     });
-
   } catch (err) {
     console.error("Add Complaint Error:", err);
     res.status(500).json({
@@ -159,7 +158,6 @@ export const addComplaint = async (req, res) => {
     });
   }
 };
-
 
 export const deleteComplaint = async (req, res) => {
   const { id } = req.params;
@@ -177,7 +175,7 @@ export const deleteComplaint = async (req, res) => {
       SET Is_Active = 0
       WHERE Complaint_ID = ?
       `,
-      [id]
+      [id],
     );
 
     if (result.affectedRows === 0) {
@@ -189,7 +187,6 @@ export const deleteComplaint = async (req, res) => {
     res.json({
       message: "Complaint deleted successfully",
     });
-
   } catch (err) {
     console.error("Delete Complaint Error:", err);
     res.status(500).json({
