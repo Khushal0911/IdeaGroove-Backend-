@@ -312,13 +312,13 @@ export const getPublicProfile = async (req, res) => {
       LEFT JOIN degree_tbl d 
         ON s.Degree_ID = d.Degree_ID
 
-      WHERE s.S_ID = ?
+      WHERE s.S_ID = ? AND s.is_Active = 1
       `,
       [id],
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: "User not found or account deactivated" });
     }
 
     res.status(200).json(rows[0]);
@@ -734,14 +734,17 @@ export const searchStudents = async (req, res) => {
 
 export const deleteStudent = async (req, res) => {
   const { id } = req.params;
+  console.log("DELETE HIT — Student ID:", id);
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const deleteStudentQuery = `UPDATE student_tbl SET is_Active = 0 WHERE S_ID = ?`;
+    const deleteStudentQuery = `UPDATE student_tbl SET is_Active = 0 WHERE S_ID = ?;`;
     const [result] = await connection.query(deleteStudentQuery, [id]);
 
+     console.log("Full result:", result);        // ← add this
+    console.log("Affected Rows:", result.affectedRows);
     if (result.affectedRows > 0) {
       await connection.commit();
       res
