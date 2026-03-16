@@ -89,6 +89,11 @@ export const getUserChatRooms = async (req, res) => {
         r.Room_ID,
         r.Room_Type,
         r.Room_Name,
+        r.Description,
+        r.Created_On,
+        r.Created_By,
+        creator.name AS Creator_Name,
+        creator.username AS Creator_Username,
         (
           SELECT Message_Text FROM chats_tbl
           WHERE Room_ID = r.Room_ID
@@ -171,6 +176,7 @@ export const getUserChatRooms = async (req, res) => {
           SELECT JSON_ARRAYAGG(
             JSON_OBJECT(
               'Student_ID', s2.S_ID,
+              'role', m2.Role,
               'username', s2.username,
               'name', s2.name,
               'Profile_Pic', s2.Profile_Pic
@@ -181,6 +187,7 @@ export const getUserChatRooms = async (req, res) => {
           WHERE m2.Room_ID = r.Room_ID AND m2.Is_Active = 1
         ) AS Members
       FROM chat_rooms_tbl r
+      LEFT JOIN student_tbl creator ON r.Created_By = creator.S_ID
       JOIN (
         SELECT Room_ID, Student_ID, MAX(Member_ID) AS Member_ID
         FROM chat_room_members_tbl
@@ -421,6 +428,127 @@ export const markMessagesSeen = async (req, res) => {
     res.json({ message: "Messages marked as seen", count: unread.length });
   } catch (error) {
     console.error("markMessagesSeen error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * GET /api/chats/message-info/:messageId
+ */
+export const getMessageInfo = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user.Student_ID;
+
+    const [messages] = await db.query(
+      `SELECT
+         c.Message_ID,
+         c.Room_ID,
+         c.Sender_ID,
+         c.Message_Type,
+         c.Message_Text,
+         c.File_Path,
+         c.Encryption_IV,
+         c.Sent_On,
+         c.Is_Deleted,
+         r.Room_Type,
+         r.Room_Name,
+         s.name AS Sender_Name,
+         s.username AS Sender_Username
+       FROM chats_tbl c
+       JOIN chat_rooms_tbl r ON c.Room_ID = r.Room_ID
+       JOIN student_tbl s ON c.Sender_ID = s.S_ID
+       JOIN chat_room_members_tbl self_member
+         ON self_member.Room_ID = c.Room_ID
+        AND self_member.Student_ID = ?
+        AND self_member.Is_Active = 1
+       WHERE c.Message_ID = ?
+       LIMIT 1`,
+      [userId, messageId],
+    );
+
+    if (messages.length === 0) {
+      return res.status(404).json({ message: "Message not found" });
+    }
+
+    const message = messages[0];
+
+    if (!message.Is_Deleted) {
+      const encryptedContent =
+        message.Message_Type === "text" ? message.Message_Text : message.File_Path;
+
+      if (encryptedContent && message.Encryption_IV) {
+        try {
+          const decrypted = decryptMessage(
+            encryptedContent,
+            message.Encryption_IV,
+          );
+          if (message.Message_Type === "text") {
+            message.Message_Text = decrypted;
+          } else {
+            message.File_Path = decrypted;
+          }
+        } catch (err) {
+          console.error("getMessageInfo decrypt failed:", err);
+        }
+      }
+    }
+
+    const [receipts] = await db.query(
+      `SELECT
+         m.Student_ID,
+         m.Role,
+         m.Joined_On,
+         s.name,
+         s.username,
+         s.Profile_Pic,
+         cs.Seen_On
+       FROM chat_room_members_tbl m
+       JOIN student_tbl s ON m.Student_ID = s.S_ID
+       LEFT JOIN chats_seen_tbl cs
+         ON cs.Member_ID = m.Member_ID
+        AND cs.Message_ID = ?
+       WHERE m.Room_ID = ?
+         AND m.Is_Active = 1
+         AND m.Student_ID != ?
+       ORDER BY
+         CASE WHEN cs.Seen_On IS NULL THEN 1 ELSE 0 END,
+         cs.Seen_On ASC,
+         s.name ASC,
+         s.username ASC`,
+      [message.Message_ID, message.Room_ID, message.Sender_ID],
+    );
+
+    const formattedReceipts = receipts.map((receipt) => ({
+      ...receipt,
+      Status: receipt.Seen_On ? "seen" : "delivered",
+    }));
+
+    res.json({
+      status: true,
+      data: {
+        message: {
+          Message_ID: message.Message_ID,
+          Room_ID: message.Room_ID,
+          Sender_ID: message.Sender_ID,
+          Sender_Name: message.Sender_Name,
+          Sender_Username: message.Sender_Username,
+          Message_Type: message.Message_Type,
+          Message_Text: message.Message_Text,
+          File_Path: message.File_Path,
+          Sent_On: message.Sent_On,
+          Is_Deleted: message.Is_Deleted,
+        },
+        room: {
+          Room_ID: message.Room_ID,
+          Room_Type: message.Room_Type,
+          Room_Name: message.Room_Name,
+        },
+        receipts: formattedReceipts,
+      },
+    });
+  } catch (error) {
+    console.error("getMessageInfo error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
