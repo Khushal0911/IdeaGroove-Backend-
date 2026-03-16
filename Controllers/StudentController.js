@@ -328,6 +328,78 @@ export const getPublicProfile = async (req, res) => {
   }
 };
 
+// export const getStudentActivities = async (req, res) => {
+//   const { id } = req.params;
+//   const { type } = req.query;
+
+//   try {
+//     let query = "";
+//     let params = [id];
+
+//     switch (type) {
+//       case "Notes":
+//         query = `
+//           SELECT n.N_ID as id, n.File_Name as title, n.Added_On as date, d.Degree_Name as course, s.Subject_Name as type
+//           FROM notes_tbl n
+//           LEFT JOIN degree_tbl d ON d.Degree_ID = n.Degree_ID
+//           LEFT JOIN subject_tbl s ON s.Subject_ID = n.Subject_ID
+//           WHERE Added_By = ? AND Is_Active = 1
+//           ORDER BY Added_On DESC
+//         `;
+//         break;
+
+//       case "QnA":
+//         query = `
+//           SELECT q.Q_ID as id, q.Question as title, q.Added_On as date, d.Degree_Name as course, s.Subject_Name as type
+//           FROM question_tbl q
+//           LEFT JOIN degree_tbl d ON d.Degree_ID = q.Degree_ID
+//           LEFT JOIN subject_tbl s ON s.Subject_ID = q.Subject_ID
+//           WHERE Added_By = ? AND Is_Active = 1
+//           ORDER BY Added_On DESC
+//         `;
+//         break;
+
+//       case "Events":
+//         query = `
+//           SELECT E_ID as id, Description as title, Added_On as date
+//           FROM event_tbl
+//           WHERE Added_By = ? AND Is_Active = 1
+//           ORDER BY Added_On DESC
+//         `;
+//         break;
+
+//       case "Complaints":
+//         query = `
+//           SELECT Complaint_ID as id, Complaint_Text as title, Date as date
+//           FROM complaint_tbl
+//           WHERE Student_ID = ? AND Is_Active = 1
+//           ORDER BY Date DESC
+//         `;
+//         break;
+
+//       case "Groups":
+//         query = `
+//           SELECT crm.Member_ID as id, crm.Room_Name as title, crm.Role as role, crm.Joined_On as date, h.Hobby_Name as based_on
+//           FROM chat_room_members_tbl crm
+//           LEFT JOIN hobbies_tbl h ON h.Hobby_ID = crm.Based_on
+//           WHERE Student_ID = ? AND Is_Active = 1
+//           ORDER BY Joined_On DESC
+//         `;
+//         break;
+
+//       default:
+//         return res.status(400).json({ error: "Invalid type" });
+//     }
+
+//     const [rows] = await db.query(query, params);
+
+//     res.status(200).json(rows);
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ error: "Server error" });
+//   }
+// };
+
 export const getStudentActivities = async (req, res) => {
   const { id } = req.params;
   const { type } = req.query;
@@ -339,29 +411,34 @@ export const getStudentActivities = async (req, res) => {
     switch (type) {
       case "Notes":
         query = `
-          SELECT n.N_ID as id, n.File_Name as title, n.Added_On as date, d.Degree_Name as course, s.Subject_Name as type
+          SELECT n.N_ID AS id, n.File_Name AS title, n.Added_On AS date,
+                 d.Degree_Name AS course, s.Subject_Name AS type
           FROM notes_tbl n
-          LEFT JOIN degree_tbl d ON d.Degree_ID = n.Degree_ID
-          LEFT JOIN subject_tbl s ON s.Subject_ID = n.Subject_ID
-          WHERE Added_By = ? AND Is_Active = 1
-          ORDER BY Added_On DESC
+          LEFT JOIN student_tbl st ON st.S_ID = n.Added_By
+          LEFT JOIN degree_tbl d   ON d.Degree_ID   = st.Degree_ID
+          LEFT JOIN subject_tbl s  ON s.Subject_ID  = n.Subject_ID
+          WHERE n.Added_By = ? AND n.Is_Active = 1
+          ORDER BY n.Added_On DESC
         `;
         break;
 
       case "QnA":
         query = `
-          SELECT q.Q_ID as id, q.Question as title, q.Added_On as date, d.Degree_Name as course, s.Subject_Name as type 
+          SELECT q.Q_ID AS id, q.Question AS title, q.Added_On AS date,
+                 d.Degree_Name AS course, s.Subject_Name AS type
           FROM question_tbl q
-          LEFT JOIN degree_tbl d ON d.Degree_ID = q.Degree_ID
-          LEFT JOIN subject_tbl s ON s.Subject_ID = q.Subject_ID
-          WHERE Added_By = ? AND Is_Active = 1
-          ORDER BY Added_On DESC
+          LEFT JOIN student_tbl st ON st.S_ID = q.Added_By
+          LEFT JOIN degree_tbl d   ON d.Degree_ID  = st.Degree_ID
+          LEFT JOIN subject_tbl s  ON s.Subject_ID = q.Subject_ID
+          WHERE q.Added_By = ? AND q.Is_Active = 1
+          ORDER BY q.Added_On DESC
         `;
         break;
 
       case "Events":
         query = `
-          SELECT E_ID as id, Description as title, Added_On as date
+          SELECT E_ID AS id, Description AS title, Added_On AS date,
+                 NULL AS course, NULL AS type
           FROM event_tbl
           WHERE Added_By = ? AND Is_Active = 1
           ORDER BY Added_On DESC
@@ -370,7 +447,8 @@ export const getStudentActivities = async (req, res) => {
 
       case "Complaints":
         query = `
-          SELECT Complaint_ID as id, Complaint_Text as title, Date as date
+          SELECT Complaint_ID AS id, Complaint_Text AS title, Date AS date,
+                 NULL AS course, Type AS type
           FROM complaint_tbl
           WHERE Student_ID = ? AND Is_Active = 1
           ORDER BY Date DESC
@@ -379,11 +457,13 @@ export const getStudentActivities = async (req, res) => {
 
       case "Groups":
         query = `
-          SELECT crm.Member_ID as id, crm.Room_Name as title, crm.Role as role, crm.Joined_On as date, h.Hobby_Name as based_on
+          SELECT crm.Member_ID AS id, cr.Room_Name AS title, crm.Joined_On AS date,
+                 h.Hobby_Name AS type, crm.Role AS course
           FROM chat_room_members_tbl crm
-          LEFT JOIN hobbies_tbl h ON h.Hobby_ID = crm.Based_on
-          WHERE Student_ID = ? AND Is_Active = 1
-          ORDER BY Joined_On DESC
+          LEFT JOIN chat_rooms_tbl cr ON cr.Room_ID   = crm.Room_ID
+          LEFT JOIN hobbies_tbl h ON h.Hobby_ID = cr.Based_On
+          WHERE crm.Student_ID = ?
+          ORDER BY crm.Joined_On DESC
         `;
         break;
 
@@ -392,11 +472,10 @@ export const getStudentActivities = async (req, res) => {
     }
 
     const [rows] = await db.query(query, params);
-
     res.status(200).json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 };
 
