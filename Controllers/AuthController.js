@@ -318,7 +318,7 @@ export const userLogin = async (req, res, next) => {
       return res.status(400).json({ message: "Missing credentials." });
 
     const [rows] = await db.query(
-      "SELECT * FROM student_tbl WHERE Username = ?",
+      "SELECT * FROM student_tbl WHERE Username = ? AND is_Active = 1",
       [username],
     );
 
