@@ -284,6 +284,9 @@ export const getPublicProfile = async (req, res) => {
         s.Degree_ID,
         d.Degree_Name,
 
+        h.Hobby_ID,
+        h.Hobby_Name,
+
         (SELECT COUNT(*) 
          FROM notes_tbl n 
          WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
@@ -312,6 +315,12 @@ export const getPublicProfile = async (req, res) => {
       LEFT JOIN degree_tbl d 
         ON s.Degree_ID = d.Degree_ID
 
+      LEFT JOIN student_hobby_mapping_tbl shm
+        ON s.S_ID = shm.Student_ID
+
+      LEFT JOIN hobbies_tbl h
+        ON shm.Hobby_ID = h.Hobby_ID
+
       WHERE s.S_ID = ?
       `,
       [id],
@@ -321,7 +330,21 @@ export const getPublicProfile = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    res.status(200).json(rows[0]);
+    const profile = {
+      ...rows[0],
+      hobbies: [],
+    };
+
+    rows.forEach((row) => {
+      if (row.Hobby_ID) {
+        profile.hobbies.push({
+          Hobby_ID: row.Hobby_ID,
+          Hobby_Name: row.Hobby_Name,
+        });
+      }
+    });
+
+    res.status(200).json(profile);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -424,8 +447,29 @@ export const getStudentActivities = async (req, res) => {
 
       case "QnA":
         query = `
-          SELECT q.Q_ID AS id, q.Question AS title, q.Added_On AS date,
-                 d.Degree_Name AS course, s.Subject_Name AS type
+          SELECT 
+            q.Q_ID AS id, 
+            q.Question AS title, 
+            q.Added_On AS date,
+            d.Degree_Name AS course, 
+            s.Subject_Name AS type,
+            (
+              SELECT COALESCE(
+                JSON_ARRAYAGG(
+                  JSON_OBJECT(
+                    'id', a.A_ID,
+                    'answer', a.Answer,
+                    'answeredBy', ans.Name,
+                    'answeredByUsername', ans.Username,
+                    'answeredOn', a.Answered_On
+                  )
+                ),
+                JSON_ARRAY()
+              )
+              FROM answer_tbl a
+              LEFT JOIN student_tbl ans ON ans.S_ID = a.Answered_By
+              WHERE a.Q_ID = q.Q_ID AND a.Is_Active = 1
+            ) AS answers
           FROM question_tbl q
           LEFT JOIN student_tbl st ON st.S_ID = q.Added_By
           LEFT JOIN degree_tbl d   ON d.Degree_ID  = st.Degree_ID
@@ -438,7 +482,7 @@ export const getStudentActivities = async (req, res) => {
       case "Events":
         query = `
           SELECT E_ID AS id, Description AS title, Added_On AS date,
-                 NULL AS course, NULL AS type
+                 Event_Date AS eventDate, NULL AS course, NULL AS type
           FROM event_tbl
           WHERE Added_By = ? AND Is_Active = 1
           ORDER BY Added_On DESC
@@ -457,12 +501,23 @@ export const getStudentActivities = async (req, res) => {
 
       case "Groups":
         query = `
-          SELECT crm.Member_ID AS id, cr.Room_Name AS title, crm.Joined_On AS date,
-                 h.Hobby_Name AS type, crm.Role AS course
+          SELECT 
+            crm.Member_ID AS id, 
+            cr.Room_ID AS roomId,
+            cr.Room_Name AS title, 
+            crm.Joined_On AS date,
+            h.Hobby_Name AS type, 
+            crm.Role AS course,
+            cr.Description AS description,
+            (
+              SELECT COUNT(*)
+              FROM chat_room_members_tbl crm2
+              WHERE crm2.Room_ID = cr.Room_ID AND crm2.Is_Active = 1
+            ) AS memberCount
           FROM chat_room_members_tbl crm
           LEFT JOIN chat_rooms_tbl cr ON cr.Room_ID   = crm.Room_ID
           LEFT JOIN hobbies_tbl h ON h.Hobby_ID = cr.Based_On
-          WHERE crm.Student_ID = ?
+          WHERE crm.Student_ID = ? AND crm.Is_Active = 1
           ORDER BY crm.Joined_On DESC
         `;
         break;
@@ -472,7 +527,15 @@ export const getStudentActivities = async (req, res) => {
     }
 
     const [rows] = await db.query(query, params);
-    res.status(200).json(rows);
+    const formattedRows = rows.map((row) => ({
+      ...row,
+      answers:
+        typeof row.answers === "string"
+          ? JSON.parse(row.answers)
+          : row.answers || [],
+    }));
+
+    res.status(200).json(formattedRows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
