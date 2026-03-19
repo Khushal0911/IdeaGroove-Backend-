@@ -7,7 +7,7 @@ export const allDegreeSubject = async (req, res) => {
         s.subject_name,
         d.degree_name 
         from degree_subject_mapping_tbl ds 
-        left join subject_Tbl s ON s.subject_id = ds.subject_id
+        left join subject_tbl s ON s.subject_id = ds.subject_id
         left join degree_tbl d
         ON d.degree_id = ds.degree_id`;
 
