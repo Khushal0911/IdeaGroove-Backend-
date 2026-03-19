@@ -1,5 +1,5 @@
 import express from "express";
-import { getAllHobbies } from "../Controllers/HobbyController.js";
+import { getAllHobbies } from "../controllers/HobbyController.js";
 
 const hobbyRouter = express.Router();
 
