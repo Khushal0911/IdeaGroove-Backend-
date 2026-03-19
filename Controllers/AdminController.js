@@ -1477,6 +1477,12 @@ export const getGroupsReport = async (req, res) => {
       params.push(filters.hobby);
     }
 
+    if (Array.isArray(filters.groups) && filters.groups.length > 0) {
+      const placeholders = filters.groups.map(() => "?").join(",");
+      where.push(`cr.Room_Name IN (${placeholders})`);
+      params.push(...filters.groups);
+    }
+
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
     // Discover date column name dynamically
@@ -1499,16 +1505,19 @@ export const getGroupsReport = async (req, res) => {
         cr.Is_Active,
         s.Name       AS student_name,
         h.Hobby_Name AS hobby_name,
+        GROUP_CONCAT(DISTINCT sm.Name ORDER BY sm.Name SEPARATOR ', ') AS member_names,
         (
           SELECT COUNT(*)
           FROM chat_room_members_tbl cm2
-          WHERE cm2.Room_ID = cr.Room_ID
+          WHERE cm2.Room_ID = cr.Room_ID AND cm2.Is_Active = 1
         ) AS member_count
       FROM chat_rooms_tbl cr
       LEFT JOIN student_tbl s ON s.S_ID = cr.Created_By
-      LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
-      LEFT JOIN hobbies_tbl h  ON shm.Hobby_ID  = h.Hobby_ID
+      LEFT JOIN hobbies_tbl h ON h.Hobby_ID = cr.Based_On
+      LEFT JOIN chat_room_members_tbl cm ON cm.Room_ID = cr.Room_ID AND cm.Is_Active = 1
+      LEFT JOIN student_tbl sm ON sm.S_ID = cm.Student_ID
       ${whereClause}
+      GROUP BY cr.Room_ID, cr.Room_Name, Created_On, cr.Is_Active, s.Name, h.Hobby_Name
       ORDER BY cr.Room_ID DESC`,
       params,
     );
@@ -1632,6 +1641,11 @@ export const getQnAReport = async (req, res) => {
       where.push("sub.Subject_Name = ?");
       params.push(filters.subject);
     }
+    if (Array.isArray(filters.questions) && filters.questions.length > 0) {
+      const placeholders = filters.questions.map(() => "?").join(",");
+      where.push(`q.Question IN (${placeholders})`);
+      params.push(...filters.questions);
+    }
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1645,6 +1659,7 @@ export const getQnAReport = async (req, res) => {
         sub.Subject_Name,
         d.Degree_Name,
         COUNT(a.A_ID)    AS answer_count,
+        GROUP_CONCAT(DISTINCT a.Answer SEPARATOR ' | ') AS all_answers,
         (
           SELECT a2.Answer
           FROM answer_tbl a2
