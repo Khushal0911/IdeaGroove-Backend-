@@ -17,7 +17,7 @@ import notesRouter from "./routes/NotesRoutes.js";
 import qnaRouter from "./routes/QnARoutes.js";
 import degreeSubjectRouter from "./routes/DegreeSubjectRoutes.js";
 import groupRouter from "./routes/GroupRoutes.js";
-import hobbyRouter from "./Routes/HobbyRoutes.js";
+import hobbyRouter from "./routes/HobbyRoutes.js";
 import complaintRouter from "./routes/ComplaintRoutes.js";
 import chatRouter from "./routes/ChatsRoutes.js";
 import { initSocket } from "./socket/socketServer.js";
