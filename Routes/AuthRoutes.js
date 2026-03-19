@@ -17,7 +17,14 @@ import { updateComplaintStatus } from "../Controllers/AdminController.js";
 
 authRouter.post("/login", userLogin);
 authRouter.get("/session", getCurrentSession);
-authRouter.post("/signup", uploadProfilePic.single("image"), userRegister);
+authRouter.post(
+  "/signup",
+  uploadProfilePic.fields([
+    { name: "profile_pic", maxCount: 1 },
+    { name: "image", maxCount: 1 },
+  ]),
+  userRegister,
+);
 authRouter.post("/logout", userLogout);
 authRouter.post("/forgot-password", forgotPassword);
 authRouter.post("/resetPassword/:id/:token", resetPassword);

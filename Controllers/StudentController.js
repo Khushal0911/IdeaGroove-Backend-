@@ -269,82 +269,41 @@ export const getPublicProfile = async (req, res) => {
     const [rows] = await db.query(
       `
       SELECT 
-        s.S_ID,
-        s.Name,
-        s.Username,
-        s.Profile_Pic,
-        s.Roll_No,
-        s.Email,
-        s.Year,
-        s.is_Active,
+        s.S_ID, s.Name, s.Username, s.Profile_Pic, s.Roll_No,
+        s.Email, s.Year, s.is_Active, s.College_ID, c.College_Name,
+        s.Degree_ID, d.Degree_Name,
 
-        s.College_ID,
-        c.College_Name,
-
-        s.Degree_ID,
-        d.Degree_Name,
-
-        h.Hobby_ID,
-        h.Hobby_Name,
-
-        (SELECT COUNT(*) 
-         FROM notes_tbl n 
-         WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
-
-        (SELECT COUNT(*) 
-         FROM question_tbl q 
-         WHERE q.Added_By = s.S_ID AND q.Is_Active = 1) AS questions_count,
-
-        (SELECT COUNT(*) 
-         FROM event_tbl e 
-         WHERE e.Added_By = s.S_ID AND e.Is_Active = 1) AS events_count,
-
-        (SELECT COUNT(*) 
-         FROM complaint_tbl comp 
-         WHERE comp.Student_ID = s.S_ID AND comp.Is_Active = 1) AS complaints_count,
-
-        (SELECT COUNT(*) 
-         FROM chat_room_members_tbl crm 
-         WHERE crm.Student_ID = s.S_ID AND crm.Is_Active = 1) AS groups_count
+        (SELECT COUNT(*) FROM notes_tbl n WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
+        (SELECT COUNT(*) FROM question_tbl q WHERE q.Added_By = s.S_ID AND q.Is_Active = 1) AS questions_count,
+        (SELECT COUNT(*) FROM event_tbl e WHERE e.Added_By = s.S_ID AND e.Is_Active = 1) AS events_count,
+        (SELECT COUNT(*) FROM complaint_tbl comp WHERE comp.Student_ID = s.S_ID AND comp.Is_Active = 1) AS complaints_count,
+        (SELECT COUNT(*) FROM chat_room_members_tbl crm WHERE crm.Student_ID = s.S_ID AND crm.Is_Active = 1) AS groups_count
 
       FROM student_tbl s
-
-      LEFT JOIN college_tbl c 
-        ON s.College_ID = c.College_ID
-
-      LEFT JOIN degree_tbl d 
-        ON s.Degree_ID = d.Degree_ID
-
-      LEFT JOIN student_hobby_mapping_tbl shm
-        ON s.S_ID = shm.Student_ID
-
-      LEFT JOIN hobbies_tbl h
-        ON shm.Hobby_ID = h.Hobby_ID
-
-      WHERE s.S_ID = ?
+      LEFT JOIN college_tbl c ON s.College_ID = c.College_ID
+      LEFT JOIN degree_tbl d ON s.Degree_ID = d.Degree_ID
+      WHERE s.S_ID = ? AND s.is_Active = 1
       `,
       [id],
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({ error: "User not found or account deactivated" });
     }
 
-    const profile = {
-      ...rows[0],
-      hobbies: [],
-    };
+    const [hobbyRows] = await db.query(
+      `SELECT h.Hobby_ID, h.Hobby_Name 
+       FROM hobbies_tbl h
+       JOIN student_hobby_mapping_tbl shm ON h.Hobby_ID = shm.Hobby_ID
+       WHERE shm.Student_ID = ?`,
+      [id],
+    );
 
-    rows.forEach((row) => {
-      if (row.Hobby_ID) {
-        profile.hobbies.push({
-          Hobby_ID: row.Hobby_ID,
-          Hobby_Name: row.Hobby_Name,
-        });
-      }
+    res.status(200).json({
+      ...rows[0],
+      hobbies: hobbyRows,
     });
 
-    res.status(200).json(profile);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -876,14 +835,17 @@ export const searchStudents = async (req, res) => {
 
 export const deleteStudent = async (req, res) => {
   const { id } = req.params;
+  console.log("DELETE HIT — Student ID:", id);
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const deleteStudentQuery = `UPDATE student_tbl SET is_Active = 0 WHERE S_ID = ?`;
+    const deleteStudentQuery = `UPDATE student_tbl SET is_Active = 0 WHERE S_ID = ?;`;
     const [result] = await connection.query(deleteStudentQuery, [id]);
 
+     console.log("Full result:", result);        // ← add this
+    console.log("Affected Rows:", result.affectedRows);
     if (result.affectedRows > 0) {
       await connection.commit();
       res
