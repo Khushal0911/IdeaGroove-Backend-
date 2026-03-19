@@ -1,4 +1,5 @@
 import db from "../config/db.js";
+import { resolveDegreeSubjectIds } from "../utils/masterData.js";
 
 export const getQnA = async (req, res) => {
   try {
@@ -288,11 +289,32 @@ export const getUserQuestions = async (req, res) => {
 
 export const addQuestion = async (req, res) => {
   console.log(req.body);
-  const { Question, Degree_ID, Subject_ID, Added_By } = req.body;
+  const {
+    Question,
+    Degree_ID,
+    Subject_ID,
+    Added_By,
+    New_Degree_Name,
+    New_Subject_Name,
+  } = req.body;
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
+
+    const { degreeId, subjectId } = await resolveDegreeSubjectIds(connection, {
+      Degree_ID,
+      Subject_ID,
+      New_Degree_Name,
+      New_Subject_Name,
+    });
+
+    if (!Question || !degreeId || !subjectId || !Added_By) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: "Question, degree, subject, and author are required.",
+      });
+    }
 
     const addQuestionQuery = `INSERT INTO question_tbl (Question,Added_By,Added_On,Degree_ID,Subject_ID,Is_Active)
         VALUES (?,?,NOW(),?,?,1)`;
@@ -300,8 +322,8 @@ export const addQuestion = async (req, res) => {
     const [result] = await connection.query(addQuestionQuery, [
       Question,
       Added_By,
-      Degree_ID,
-      Subject_ID,
+      degreeId,
+      subjectId,
     ]);
 
     if (result.affectedRows > 0) {
@@ -329,11 +351,32 @@ export const addQuestion = async (req, res) => {
 };
 
 export const updateQuestion = async (req, res) => {
-  const { Question, Degree_ID, Subject_ID, Q_ID } = req.body;
+  const {
+    Question,
+    Degree_ID,
+    Subject_ID,
+    Q_ID,
+    New_Degree_Name,
+    New_Subject_Name,
+  } = req.body;
   let connection;
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
+
+    const { degreeId, subjectId } = await resolveDegreeSubjectIds(connection, {
+      Degree_ID,
+      Subject_ID,
+      New_Degree_Name,
+      New_Subject_Name,
+    });
+
+    if (!Question || !degreeId || !subjectId || !Q_ID) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: "Question, degree, subject, and question id are required.",
+      });
+    }
 
     const updateQuestionQuery = `UPDATE question_tbl
         SET Question = ?, Degree_ID=?, Subject_ID=?
@@ -341,8 +384,8 @@ export const updateQuestion = async (req, res) => {
 
     const [result] = await connection.query(updateQuestionQuery, [
       Question,
-      Degree_ID,
-      Subject_ID,
+      degreeId,
+      subjectId,
       Q_ID,
     ]);
 
