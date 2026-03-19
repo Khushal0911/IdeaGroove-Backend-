@@ -167,7 +167,11 @@ export const userRegister = async (req, res) => {
     Hobbies,
   } = req.body;
 
-  const Profile_Pic = req.file ? req.file.path : null;
+  const Profile_Pic =
+    req.files?.profile_pic?.[0]?.path ||
+    req.files?.image?.[0]?.path ||
+    req.file?.path ||
+    null;
 
   // Sanitization
   Username = Username?.toString().trim();
