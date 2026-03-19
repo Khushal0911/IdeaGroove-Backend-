@@ -1,5 +1,6 @@
 import db from "../config/db.js";
 import { cloudinary } from "../config/cloud.js";
+import { resolveDegreeSubjectIds } from "../utils/masterData.js";
 
 const extractCloudinaryAssetDetails = (fileUrl, fallbackFileName = "") => {
   if (!fileUrl) return null;
@@ -242,7 +243,14 @@ export const getNoteDownloadUrl = async (req, res) => {
 };
 
 export const addNotes = async (req, res) => {
-  const { Degree_ID, Subject_ID, Description, Added_By } = req.body || {};
+  const {
+    Degree_ID,
+    Subject_ID,
+    Description,
+    Added_By,
+    New_Degree_Name,
+    New_Subject_Name,
+  } = req.body || {};
   const Note_File = req.file ? req.file.path : null;
   const File_Name = req.file ? req.file.originalname : null;
   let connection;
@@ -250,14 +258,28 @@ export const addNotes = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
+    const { degreeId, subjectId } = await resolveDegreeSubjectIds(connection, {
+      Degree_ID,
+      Subject_ID,
+      New_Degree_Name,
+      New_Subject_Name,
+    });
+
+    if (!degreeId || !subjectId || !Added_By || !Note_File || !File_Name) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: "Degree, subject, author, and note file are required.",
+      });
+    }
+
     const addNotesQuery = `INSERT INTO notes_tbl (Note_File, File_Name, Added_By, Added_on, Degree_ID, Subject_ID, Description, Is_Active) VALUES (?, ?, ?, NOW(), ?, ?, ?, 1)`;
 
     const [result] = await connection.query(addNotesQuery, [
       Note_File,
       File_Name,
       Added_By,
-      Degree_ID,
-      Subject_ID,
+      degreeId,
+      subjectId,
       Description,
     ]);
 
@@ -287,7 +309,14 @@ export const addNotes = async (req, res) => {
 };
 
 export const updateNotes = async (req, res) => {
-  const { Degree_ID, Subject_ID, Description, N_ID } = req.body;
+  const {
+    Degree_ID,
+    Subject_ID,
+    Description,
+    N_ID,
+    New_Degree_Name,
+    New_Subject_Name,
+  } = req.body;
   const Note_File = req.file ? req.file.path : null;
   const File_Name = req.file ? req.file.filename : null;
 
@@ -295,6 +324,20 @@ export const updateNotes = async (req, res) => {
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
+
+    const { degreeId, subjectId } = await resolveDegreeSubjectIds(connection, {
+      Degree_ID,
+      Subject_ID,
+      New_Degree_Name,
+      New_Subject_Name,
+    });
+
+    if (!degreeId || !subjectId || !N_ID) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: "Degree, subject, and note id are required.",
+      });
+    }
 
     let updateNotesQuery;
     let queryParams;
@@ -305,15 +348,15 @@ export const updateNotes = async (req, res) => {
       queryParams = [
         Note_File,
         File_Name,
-        Degree_ID,
-        Subject_ID,
+        degreeId,
+        subjectId,
         Description,
         N_ID,
       ];
     } else {
       // No new file — keep existing file, update only metadata
       updateNotesQuery = `UPDATE notes_tbl SET Degree_ID = ?, Subject_ID = ?, Description = ? WHERE N_ID = ?`;
-      queryParams = [Degree_ID, Subject_ID, Description, N_ID];
+      queryParams = [degreeId, subjectId, Description, N_ID];
     }
 
     const [result] = await connection.query(updateNotesQuery, queryParams);

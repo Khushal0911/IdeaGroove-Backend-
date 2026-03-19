@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import db from "../config/db.js";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
+import { ensureLookupValue, resolveHobbyIds } from "../utils/masterData.js";
 
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -165,6 +166,9 @@ export const userRegister = async (req, res) => {
     Email,
     Password,
     Hobbies,
+    New_College_Name,
+    New_Degree_Name,
+    New_Hobbies,
   } = req.body;
 
   const Profile_Pic =
@@ -212,6 +216,16 @@ export const userRegister = async (req, res) => {
     .map((id) => parseInt(id))
     .filter((id) => !isNaN(id));
 
+  let parsedNewHobbies = [];
+  if (New_Hobbies) {
+    if (Array.isArray(New_Hobbies)) {
+      parsedNewHobbies = New_Hobbies;
+    } else if (typeof New_Hobbies === "string") {
+      parsedNewHobbies = New_Hobbies.split(",").map((hobby) => hobby.trim());
+    }
+  }
+  parsedNewHobbies = parsedNewHobbies.filter(Boolean);
+
   let connection;
   try {
     const hashedPassword = await bcrypt.hash(Password, 10);
@@ -219,6 +233,20 @@ export const userRegister = async (req, res) => {
     // Get connection from pool and start transaction
     connection = await db.getConnection();
     await connection.beginTransaction();
+
+    const resolvedCollege = College_ID
+      ? { id: parseInt(College_ID, 10) || null }
+      : await ensureLookupValue(connection, "college", New_College_Name);
+
+    const resolvedDegree = Degree_ID
+      ? { id: parseInt(Degree_ID, 10) || null }
+      : await ensureLookupValue(connection, "degree", New_Degree_Name);
+
+    const resolvedHobbyIds = await resolveHobbyIds(
+      connection,
+      parsedHobbies,
+      parsedNewHobbies,
+    );
 
     // 1. Insert Student
     const studentSql = `
@@ -231,8 +259,8 @@ export const userRegister = async (req, res) => {
       Username,
       Name,
       Roll_No,
-      College_ID || null,
-      Degree_ID || null,
+      resolvedCollege?.id || null,
+      resolvedDegree?.id || null,
       Year || null,
       Email,
       hashedPassword,
@@ -242,11 +270,11 @@ export const userRegister = async (req, res) => {
     const newStudentId = result.insertId;
 
     // --- 5. Insert Hobbies (if any) ---
-    if (parsedHobbies.length > 0) {
+    if (resolvedHobbyIds.length > 0) {
       const hobbySql = `INSERT INTO student_hobby_mapping_tbl (Student_ID, Hobby_ID) VALUES ?`;
 
       // Prepare bulk insert array: [[student_id, hobby_id_1], [student_id, hobby_id_2], ...]
-      const hobbyValues = parsedHobbies.map((hobbyId) => [
+      const hobbyValues = resolvedHobbyIds.map((hobbyId) => [
         newStudentId,
         hobbyId,
       ]);
