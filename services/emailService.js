@@ -1,19 +1,43 @@
-import { Resend } from "resend";
+import {
+  SendSmtpEmail,
+  TransactionalEmailsApi,
+  TransactionalEmailsApiApiKeys,
+} from "@getbrevo/brevo";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const RESEND_FROM_EMAIL = "onboarding@resend.dev";
+const transactionalEmailsApi = new TransactionalEmailsApi();
+transactionalEmailsApi.setApiKey(
+  TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY,
+);
+const BREVO_FROM_EMAIL = process.env.EMAIL_USER;
 
 export const sendEmail = async ({ to, subject, text, html }) => {
-  const { error } = await resend.emails.send({
-    from: RESEND_FROM_EMAIL,
-    to,
-    subject,
-    text,
-    html,
-  });
+  const message = new SendSmtpEmail();
+  const recipients = Array.isArray(to) ? to : [to];
 
-  if (error) {
-    throw new Error(error.message || "Failed to send email");
+  message.sender = { email: BREVO_FROM_EMAIL };
+  message.to = recipients.map((recipient) =>
+    typeof recipient === "string" ? { email: recipient } : recipient,
+  );
+  message.subject = subject;
+
+  if (text) {
+    message.textContent = text;
+  }
+
+  if (html) {
+    message.htmlContent = html;
+  }
+
+  try {
+    await transactionalEmailsApi.sendTransacEmail(message);
+  } catch (error) {
+    throw new Error(
+      error?.response?.body?.message ||
+        error?.body?.message ||
+        error?.message ||
+        "Failed to send email",
+    );
   }
 };
 
