@@ -1,4 +1,4 @@
-import db from "../config/db.js";
+import db from "../config/database.js";
 import { cloudinary } from "../config/cloud.js";
 import { resolveDegreeSubjectIds } from "../utils/masterData.js";
 

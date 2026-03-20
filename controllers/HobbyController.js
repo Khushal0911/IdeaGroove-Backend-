@@ -1,4 +1,4 @@
-import db from "../config/db.js";
+import db from "../config/database.js";
 
 export const getAllHobbies = async (req, res) => {
   try {

@@ -1,4 +1,4 @@
-import db from "../config/db.js";
+import db from "../config/database.js";
 import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
 
 /**

@@ -1,4 +1,4 @@
-// import db from "../config/db.js";
+// import db from "../config/database.js";
 
 // export const searchStudents = async (req, res) => {
 //   const { q, department, page = 1, limit = 20 } = req.query; // Default limit to 20 for performance
@@ -260,7 +260,7 @@
 //   }
 // };
 
-import db from "../config/db.js";
+import db from "../config/database.js";
 
 export const getPublicProfile = async (req, res) => {
   const { id } = req.params;

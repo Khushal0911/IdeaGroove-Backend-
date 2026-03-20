@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import db from "../config/db.js";
+import db from "../config/database.js";
 import jwt from "jsonwebtoken";
 import { sendEmail } from "../services/emailService.js";
 import { ensureLookupValue, resolveHobbyIds } from "../utils/masterData.js";

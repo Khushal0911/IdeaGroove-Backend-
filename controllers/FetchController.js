@@ -1,4 +1,4 @@
-import db from "../config/db.js";
+import db from "../config/database.js";
 
 export const getData = async (req, res) => {
   try {

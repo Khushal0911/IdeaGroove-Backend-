@@ -5,7 +5,7 @@ import cors from "cors";
 import passport from "passport";
 import cookieSession from "cookie-session";
 import authRouter from "./routes/AuthRoutes.js";
-import { testConnection } from "./config/db.js";
+import { testConnection } from "./config/database.js";
 import "./config/passport.js";
 import axios from "axios";
 import fetchRouter from "./routes/FetchRoutes.js";
@@ -86,22 +86,32 @@ app.get("/", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+const REQUIRE_DB_ON_STARTUP =
+  process.env.REQUIRE_DB_ON_STARTUP?.toLowerCase() === "true";
 
 const startServer = async () => {
+  // Listen first so deploys do not fail just because the database is slow or
+  // temporarily unreachable during boot.
+  httpServer.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+    initSocket(httpServer);
+    console.log(`Socket.io initialised on port ${PORT}`);
+  });
+
   try {
     await testConnection();
-    // Listen on httpServer (not app) so Socket.io shares the same port
-    httpServer.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-      // Attach Socket.io after server is listening
-      initSocket(httpServer);
-      console.log(`Socket.io initialised on port ${PORT}`);
-    });
   } catch (err) {
-    console.error(
-      "Failed to start server due to DB connection error. Exiting.",
+    if (REQUIRE_DB_ON_STARTUP) {
+      console.error("Failed to start server due to DB connection error.");
+      process.exit(1);
+    }
+
+    console.warn(
+      "Server started, but the initial database connection check failed.",
     );
-    process.exit(1);
+    console.warn(
+      "Set REQUIRE_DB_ON_STARTUP=true if startup must fail when DB is unavailable.",
+    );
   }
 };
 
