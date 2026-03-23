@@ -21,17 +21,19 @@ import hobbyRouter from "./routes/HobbyRoutes.js";
 import complaintRouter from "./routes/ComplaintRoutes.js";
 import chatRouter from "./routes/ChatsRoutes.js";
 import { initSocket } from "./socket/socketServer.js";
+import { corsOrigin, sessionCookieOptions } from "./config/runtime.js";
 
 const app = express();
 // Create raw http.Server so Socket.io can attach to the same port
 const httpServer = http.createServer(app);
 
 axios.defaults.withCredentials = true;
+app.set("trust proxy", 1);
 
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
-    methods: "GET,POST,PUT,DELETE",
+    origin: corsOrigin,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   }),
 );
@@ -39,11 +41,7 @@ app.use(
 app.use(express.json());
 
 app.use(
-  cookieSession({
-    name: "session",
-    keys: [process.env.COOKIE_KEY || "idea-groove-secret-key"],
-    maxAge: 24 * 60 * 60 * 1000,
-  }),
+  cookieSession(sessionCookieOptions),
 );
 
 app.use((req, res, next) => {

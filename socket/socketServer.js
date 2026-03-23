@@ -1,10 +1,11 @@
 import { Server } from "socket.io";
 import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
+import { corsOrigin } from "../config/runtime.js";
 
 export const initSocket = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CLIENT_URL || "http://localhost:5173",
+      origin: corsOrigin,
       methods: ["GET", "POST"],
       credentials: true,
     },

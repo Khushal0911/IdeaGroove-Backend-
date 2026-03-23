@@ -3,6 +3,7 @@ import db from "../config/database.js";
 import jwt from "jsonwebtoken";
 import { sendEmail } from "../services/emailService.js";
 import { ensureLookupValue, resolveHobbyIds } from "../utils/masterData.js";
+import { clientAppUrl } from "../config/runtime.js";
 
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -31,7 +32,7 @@ export const forgotPassword = async (req, res) => {
       { expiresIn: "15m" }, // Token valid for 15 minutes
     );
 
-    const resetUrl = `http://localhost:5173/resetPassword/${targetUser.S_ID}/${token}`;
+    const resetUrl = `${clientAppUrl}/reset-password/${targetUser.S_ID}/${token}`;
 
     const mailOptions = {
       to: email,
