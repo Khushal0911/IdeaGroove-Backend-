@@ -65,8 +65,10 @@ export const getNotes = async (req, res) => {
     const queryParams = [];
 
     if (search) {
-      conditions.push("(n.Description LIKE ? OR sub.Subject_Name LIKE ?)");
-      queryParams.push(`%${search}%`, `%${search}%`);
+      conditions.push(
+        "(n.Description LIKE ? OR n.File_Name LIKE ? OR sub.Subject_Name LIKE ?)",
+      );
+      queryParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     if (degreeId) {
