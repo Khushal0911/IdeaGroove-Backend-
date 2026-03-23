@@ -1,5 +1,10 @@
 import fs from "fs";
+import path from "path";
 import mysql from "mysql2/promise";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function parseBoolean(value) {
   if (!value) return false;
@@ -23,16 +28,36 @@ function buildSslConfig() {
     process.env.DB_SSL_REJECT_UNAUTHORIZED?.toLowerCase() !== "false" &&
     !parseBoolean(process.env.DB_SSL_SKIP_VERIFY);
 
+  const bundledCaCandidates = [
+    process.env.DB_SSL_CA_PATH,
+    path.resolve(process.cwd(), "ca.pem"),
+    path.resolve(process.cwd(), "IdeaGroove-Backend-", "ca.pem"),
+    path.resolve(__dirname, "..", "ca.pem"),
+    path.resolve(__dirname, "..", "..", "ca.pem"),
+  ].filter(Boolean);
+
+  const bundledCa = bundledCaCandidates.find((candidatePath) =>
+    fs.existsSync(candidatePath),
+  );
+
   const ca =
     process.env.DB_SSL_CA ||
     (process.env.DB_SSL_CA_B64
       ? Buffer.from(process.env.DB_SSL_CA_B64, "base64").toString("utf8")
       : undefined) ||
-    (process.env.DB_SSL_CA_PATH
-      ? fs.readFileSync(process.env.DB_SSL_CA_PATH, "utf8")
+    (bundledCa
+      ? fs.readFileSync(bundledCa, "utf8")
       : undefined);
 
-  return ca ? { ca, rejectUnauthorized } : { rejectUnauthorized };
+  if (!ca && rejectUnauthorized) {
+    console.warn(
+      "DB SSL is enabled but no CA certificate was found. Set DB_SSL_CA_B64/DB_SSL_CA_PATH or include ca.pem with the backend deployment.",
+    );
+  }
+
+  return ca
+    ? { ca, rejectUnauthorized, minVersion: "TLSv1.2" }
+    : { rejectUnauthorized, minVersion: "TLSv1.2" };
 }
 
 const pool = mysql.createPool({
