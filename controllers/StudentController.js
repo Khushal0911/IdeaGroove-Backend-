@@ -269,64 +269,45 @@ export const getPublicProfile = async (req, res) => {
     const [rows] = await db.query(
       `
       SELECT 
-        s.S_ID, s.Name, s.Username, s.Profile_Pic, s.Roll_No,
-        s.Email, s.Year, s.is_Active, s.College_ID, c.College_Name,
-        s.Degree_ID, d.Degree_Name,
-
+        s.S_ID,
+        s.Name,
+        s.Username,
+        s.Profile_Pic,
+        s.Roll_No,
+        s.Email,
+        s.Year,
+        s.is_Active,
         s.College_ID,
         c.College_Name,
-
         s.Degree_ID,
         d.Degree_Name,
-
         h.Hobby_ID,
         h.Hobby_Name,
-
-        (SELECT COUNT(*) 
-         FROM notes_tbl n 
+        (SELECT COUNT(*)
+         FROM notes_tbl n
          WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
-
-        (SELECT COUNT(*) 
-         FROM question_tbl q 
+        (SELECT COUNT(*)
+         FROM question_tbl q
          WHERE q.Added_By = s.S_ID AND q.Is_Active = 1) AS questions_count,
-
-        (SELECT COUNT(*) 
-         FROM event_tbl e 
+        (SELECT COUNT(*)
+         FROM event_tbl e
          WHERE e.Added_By = s.S_ID AND e.Is_Active = 1) AS events_count,
-
-        (SELECT COUNT(*) 
-         FROM complaint_tbl comp 
+        (SELECT COUNT(*)
+         FROM complaint_tbl comp
          WHERE comp.Student_ID = s.S_ID AND comp.Is_Active = 1) AS complaints_count,
-
-        (SELECT COUNT(*) 
-         FROM chat_room_members_tbl crm 
+        (SELECT COUNT(*)
+         FROM chat_room_members_tbl crm
          WHERE crm.Student_ID = s.S_ID AND crm.Is_Active = 1) AS groups_count
-
       FROM student_tbl s
-
-      LEFT JOIN college_tbl c 
+      LEFT JOIN college_tbl c
         ON s.College_ID = c.College_ID
-
-      LEFT JOIN degree_tbl d 
+      LEFT JOIN degree_tbl d
         ON s.Degree_ID = d.Degree_ID
-
       LEFT JOIN student_hobby_mapping_tbl shm
         ON s.S_ID = shm.Student_ID
-
       LEFT JOIN hobbies_tbl h
         ON shm.Hobby_ID = h.Hobby_ID
-
       WHERE s.S_ID = ?
-        (SELECT COUNT(*) FROM notes_tbl n WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
-        (SELECT COUNT(*) FROM question_tbl q WHERE q.Added_By = s.S_ID AND q.Is_Active = 1) AS questions_count,
-        (SELECT COUNT(*) FROM event_tbl e WHERE e.Added_By = s.S_ID AND e.Is_Active = 1) AS events_count,
-        (SELECT COUNT(*) FROM complaint_tbl comp WHERE comp.Student_ID = s.S_ID AND comp.Is_Active = 1) AS complaints_count,
-        (SELECT COUNT(*) FROM chat_room_members_tbl crm WHERE crm.Student_ID = s.S_ID AND crm.Is_Active = 1) AS groups_count
-
-      FROM student_tbl s
-      LEFT JOIN college_tbl c ON s.College_ID = c.College_ID
-      LEFT JOIN degree_tbl d ON s.Degree_ID = d.Degree_ID
-      WHERE s.S_ID = ? AND s.is_Active = 1
       `,
       [id],
     );
@@ -352,19 +333,6 @@ export const getPublicProfile = async (req, res) => {
     });
 
     res.status(200).json(profile);
-
-    const [hobbyRows] = await db.query(
-      `SELECT h.Hobby_ID, h.Hobby_Name 
-       FROM hobbies_tbl h
-       JOIN student_hobby_mapping_tbl shm ON h.Hobby_ID = shm.Hobby_ID
-       WHERE shm.Student_ID = ?`,
-      [id],
-    );
-
-    res.status(200).json({
-      ...rows[0],
-      hobbies: hobbyRows,
-    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });

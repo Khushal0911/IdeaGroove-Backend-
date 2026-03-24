@@ -485,11 +485,13 @@ export const viewMembers = async (req, res) => {
   const { Room_ID } = req.params;
   try {
     const membersQuery = `
-      SELECT rm.role as role, s.username, s.name, s.Profile_Pic, r.Room_ID 
+      SELECT rm.role as role, rm.Student_ID, s.S_ID, s.username, s.name, s.Profile_Pic, r.Room_ID 
       FROM chat_room_members_tbl rm
       LEFT JOIN chat_rooms_tbl r ON r.Room_ID = rm.Room_ID
       LEFT JOIN student_tbl s ON s.S_ID = rm.Student_ID
-      WHERE r.Room_ID = ?`;
+      WHERE r.Room_ID = ?
+        AND rm.Is_Active = 1
+      ORDER BY CASE WHEN LOWER(rm.Role) = 'admin' THEN 0 ELSE 1 END, s.Name ASC`;
 
     const [membersDetails] = await db.query(membersQuery, [Room_ID]);
 

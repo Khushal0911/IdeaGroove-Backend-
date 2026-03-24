@@ -39,7 +39,8 @@ export const getEvents = async (req, res) => {
       SELECT e.E_ID, e.Added_By, e.Poster_File, e.Description,
              e.Event_Date, e.Added_On, e.Is_Active,
              e.Interested, e.Not_Interested,
-             s.S_ID AS Organizer_ID, s.Name AS Organizer_Name
+             s.S_ID AS Organizer_ID, s.username AS Organizer_Name,
+             s.username AS Organizer_Username
       FROM event_tbl e
       LEFT JOIN student_tbl s ON e.Added_By = s.S_ID
       WHERE ${whereClause}
