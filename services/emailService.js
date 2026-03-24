@@ -3,41 +3,89 @@ import {
   TransactionalEmailsApi,
   TransactionalEmailsApiApiKeys,
 } from "@getbrevo/brevo";
+import nodemailer from "nodemailer";
+
 const transactionalEmailsApi = new TransactionalEmailsApi();
-transactionalEmailsApi.setApiKey(
-  TransactionalEmailsApiApiKeys.apiKey,
-  process.env.BREVO_API_KEY,
-);
-const BREVO_FROM_EMAIL = process.env.EMAIL_USER;
+const brevoApiKey = process.env.BREVO_API_KEY;
+const smtpUser = process.env.EMAIL_USERNAME || process.env.EMAIL_USER;
+const smtpPass = process.env.EMAIL_PASS;
+const senderEmail = process.env.EMAIL_USER || smtpUser;
+
+if (brevoApiKey) {
+  transactionalEmailsApi.setApiKey(
+    TransactionalEmailsApiApiKeys.apiKey,
+    brevoApiKey,
+  );
+}
+
+const smtpTransporter =
+  smtpUser && smtpPass
+    ? nodemailer.createTransport({
+        service: "gmail",
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      })
+    : null;
+
+const normalizeRecipient = (recipient) =>
+  typeof recipient === "string"
+    ? recipient
+    : {
+        address: recipient.email,
+        name: recipient.name,
+      };
 
 export const sendEmail = async ({ to, subject, text, html }) => {
-  const message = new SendSmtpEmail();
   const recipients = Array.isArray(to) ? to : [to];
+  let lastError = null;
 
-  message.sender = { email: BREVO_FROM_EMAIL };
-  message.to = recipients.map((recipient) =>
-    typeof recipient === "string" ? { email: recipient } : recipient,
-  );
-  message.subject = subject;
-
-  if (text) {
-    message.textContent = text;
-  }
-
-  if (html) {
-    message.htmlContent = html;
-  }
-
-  try {
-    await transactionalEmailsApi.sendTransacEmail(message);
-  } catch (error) {
-    throw new Error(
-      error?.response?.body?.message ||
-        error?.body?.message ||
-        error?.message ||
-        "Failed to send email",
+  if (brevoApiKey) {
+    const message = new SendSmtpEmail();
+    message.sender = { email: senderEmail };
+    message.to = recipients.map((recipient) =>
+      typeof recipient === "string" ? { email: recipient } : recipient,
     );
+    message.subject = subject;
+
+    if (text) {
+      message.textContent = text;
+    }
+
+    if (html) {
+      message.htmlContent = html;
+    }
+
+    try {
+      await transactionalEmailsApi.sendTransacEmail(message);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
   }
+
+  if (smtpTransporter) {
+    try {
+      await smtpTransporter.sendMail({
+        from: senderEmail,
+        to: recipients.map(normalizeRecipient),
+        subject,
+        text,
+        html,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    lastError?.response?.body?.message ||
+      lastError?.body?.message ||
+      lastError?.message ||
+      "Failed to send email",
+  );
 };
 
 const getBlockTemplate = (

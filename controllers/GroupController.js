@@ -1,5 +1,38 @@
 import db from "../config/database.js";
 
+const MAX_GROUP_NAME_LENGTH = 150;
+const MAX_GROUP_DESCRIPTION_LENGTH = 255;
+
+const validateGroupPayload = ({ Room_Name, Description, Based_On, Created_By }) => {
+  const trimmedRoomName = Room_Name?.trim() || "";
+  const trimmedDescription = Description?.trim() || "";
+
+  if (!trimmedRoomName) {
+    return { error: "Group name is required." };
+  }
+
+  if (trimmedRoomName.length > MAX_GROUP_NAME_LENGTH) {
+    return { error: "Group name cannot exceed 150 characters." };
+  }
+
+  if (trimmedDescription.length > MAX_GROUP_DESCRIPTION_LENGTH) {
+    return { error: "Description cannot exceed 255 characters." };
+  }
+
+  if (Based_On === undefined || Based_On === null || Based_On === "") {
+    return { error: "Interest basis is required." };
+  }
+
+  if (Created_By !== undefined && (Created_By === null || Created_By === "")) {
+    return { error: "Creator is required." };
+  }
+
+  return {
+    Room_Name: trimmedRoomName,
+    Description: trimmedDescription,
+  };
+};
+
 export const getGroups = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -236,6 +269,17 @@ export const getUserGroups = async (req, res) => {
 
 export const addGroup = async (req, res) => {
   const { Room_Name, Based_On, Description, Created_By } = req.body;
+  const validatedPayload = validateGroupPayload({
+    Room_Name,
+    Based_On,
+    Description,
+    Created_By,
+  });
+
+  if (validatedPayload.error) {
+    return res.status(400).json({ error: validatedPayload.error });
+  }
+
   let connection;
   try {
     connection = await db.getConnection();
@@ -246,10 +290,10 @@ export const addGroup = async (req, res) => {
       VALUES ('Group', ?, ?, ?, NOW(), 1, ?)`;
 
     const [addResult] = await connection.query(addGroupQuery, [
-      Room_Name,
+      validatedPayload.Room_Name,
       Based_On,
       Created_By,
-      Description,
+      validatedPayload.Description || null,
     ]);
 
     if (addResult.affectedRows > 0) {
@@ -293,6 +337,16 @@ export const addGroup = async (req, res) => {
 
 export const updateGroup = async (req, res) => {
   const { Room_Name, Based_On, Room_ID, Description } = req.body;
+  const validatedPayload = validateGroupPayload({
+    Room_Name,
+    Based_On,
+    Description,
+  });
+
+  if (validatedPayload.error) {
+    return res.status(400).json({ error: validatedPayload.error });
+  }
+
   let connection;
   try {
     connection = await db.getConnection();
@@ -303,9 +357,9 @@ export const updateGroup = async (req, res) => {
       WHERE Room_ID = ?`;
 
     const [updateResult] = await connection.query(updateGroupQuery, [
-      Room_Name,
+      validatedPayload.Room_Name,
       Based_On,
-      Description,
+      validatedPayload.Description || null,
       Room_ID,
     ]);
 

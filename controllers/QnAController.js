@@ -418,24 +418,32 @@ export const deleteQuestion = async (req, res) => {
   let connection;
   try {
     connection = await db.getConnection();
-    await connection.commit();
+    await connection.beginTransaction();
     const deleteQuestionQuery = `UPDATE question_tbl
         SET Is_Active = 0, Deleted_on = NOW() 
         WHERE Q_ID=?`;
 
     const [result] = await connection.query(deleteQuestionQuery, [Q_ID]);
 
-    if (result.affectedRows > 0) {
-      await connection.commit();
-      res
-        .status(200)
-        .json({ status: true, message: "Question Deleted Successfully" });
-    } else {
+    if (result.affectedRows === 0) {
       await connection.rollback();
       res.status(404).json({ status: false, message: "Question not found" });
+      return;
     }
+
+    await connection.query(
+      `UPDATE answer_tbl
+       SET Is_Active = 0
+       WHERE Q_ID = ?`,
+      [Q_ID],
+    );
+
+    await connection.commit();
+    res
+      .status(200)
+      .json({ status: true, message: "Question Deleted Successfully" });
   } catch (err) {
-    if (connection) connection.rollback();
+    if (connection) await connection.rollback();
     console.error("Error in Deletion of question", err);
     res.status(500).json({
       error: "Failed to delete question",
@@ -452,11 +460,20 @@ export const addAnswer = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
+    const trimmedAnswer = Answer?.trim();
+
+    if (!trimmedAnswer || !Q_ID || !Answered_By) {
+      await connection.rollback();
+      return res.status(400).json({
+        error: "Answer, question, and author are required.",
+      });
+    }
+
     const addAnswerQuery = `INSERT INTO answer_tbl (Answer,Q_ID,Answered_By,Answered_On,Is_Active)
         VALUES(?,?,?,NOW(),1)`;
 
     const [result] = await connection.query(addAnswerQuery, [
-      Answer,
+      trimmedAnswer,
       Q_ID,
       Answered_By,
     ]);
@@ -471,7 +488,7 @@ export const addAnswer = async (req, res) => {
       res.status(400).json({ status: false, message: "Failed to post answer" });
     }
   } catch (err) {
-    if (connection) connection.rollback();
+    if (connection) await connection.rollback();
     console.error("Failed to add Answer", err);
     res.status(500).json({
       error: "Failed to Insert answer",
