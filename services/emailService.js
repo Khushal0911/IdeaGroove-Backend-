@@ -3,7 +3,6 @@ import {
   TransactionalEmailsApi,
   TransactionalEmailsApiApiKeys,
 } from "@getbrevo/brevo";
-
 const transactionalEmailsApi = new TransactionalEmailsApi();
 transactionalEmailsApi.setApiKey(
   TransactionalEmailsApiApiKeys.apiKey,
