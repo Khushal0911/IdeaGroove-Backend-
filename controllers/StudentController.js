@@ -262,6 +262,40 @@
 
 import db from "../config/database.js";
 
+const parseHobbyIds = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((id) => parseInt(id, 10))
+      .filter((id) => !Number.isNaN(id));
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(trimmedValue);
+    if (Array.isArray(parsedValue)) {
+      return parsedValue
+        .map((id) => parseInt(id, 10))
+        .filter((id) => !Number.isNaN(id));
+    }
+  } catch {
+    return trimmedValue
+      .split(",")
+      .map((id) => parseInt(id.trim(), 10))
+      .filter((id) => !Number.isNaN(id));
+  }
+
+  return [];
+};
+
 export const getPublicProfile = async (req, res) => {
   const { id } = req.params;
 
@@ -745,6 +779,7 @@ export const updateStudent = async (req, res) => {
   } = req.body;
 
   const profile_pic = req.file ? req.file.path : undefined;
+  const parsedHobbies = parseHobbyIds(hobbies);
 
   let connection;
   try {
@@ -756,8 +791,10 @@ export const updateStudent = async (req, res) => {
       "SELECT * FROM student_tbl WHERE S_ID = ?",
       [student_id],
     );
-    if (current.length === 0)
+    if (current.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ error: "Student not found" });
+    }
     const old = current[0];
 
     // 2. Prepare parameters: Use new value if provided, otherwise keep the old one
@@ -782,13 +819,13 @@ export const updateStudent = async (req, res) => {
     await connection.execute(updateQuery, params);
 
     // 3. Sync Hobbies
-    if (hobbies && Array.isArray(hobbies)) {
+    if (hobbies !== undefined) {
       await connection.query(
         "DELETE FROM student_hobby_mapping_tbl WHERE Student_ID = ?",
         [student_id],
       );
-      if (hobbies.length > 0) {
-        const hobbyValues = hobbies.map((id) => [student_id, id]);
+      if (parsedHobbies.length > 0) {
+        const hobbyValues = parsedHobbies.map((id) => [student_id, id]);
         await connection.query(
           "INSERT INTO student_hobby_mapping_tbl (Student_ID, Hobby_ID) VALUES ?",
           [hobbyValues],
