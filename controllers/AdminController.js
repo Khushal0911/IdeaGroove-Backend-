@@ -1,7 +1,6 @@
 import bcrypt from "bcryptjs";
-import db from "../config/db.js";
+import db from "../config/database.js";
 import jwt from "jsonwebtoken"; // Import JWT
-import nodemailer from "nodemailer";
 import {
   sendBlockEmail,
   sendComplaintStatusEmail,

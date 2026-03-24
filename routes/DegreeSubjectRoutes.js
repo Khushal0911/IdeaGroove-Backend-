@@ -1,5 +1,5 @@
 import express from "express";
-import { allDegreeSubject } from "../Controllers/DegreeSubjectController.js";
+import { allDegreeSubject } from "../controllers/DegreeSubjectController.js";
 
 const degreeSubjectRouter = express.Router();
 

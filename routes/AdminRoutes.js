@@ -17,7 +17,7 @@ import {
   toggleBlock,
   unblockContent,
   unblockStudent,
-} from "../Controllers/AdminController.js";
+} from "../controllers/AdminController.js";
 const adminRouter = express.Router();
 
 adminRouter.post("/login", adminLogin);

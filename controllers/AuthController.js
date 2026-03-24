@@ -1,8 +1,9 @@
 import bcrypt from "bcryptjs";
-import db from "../config/db.js";
+import db from "../config/database.js";
 import jwt from "jsonwebtoken";
-import nodemailer from "nodemailer";
+import { sendEmail } from "../services/emailService.js";
 import { ensureLookupValue, resolveHobbyIds } from "../utils/masterData.js";
+import { clientAppUrl } from "../config/runtime.js";
 
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
@@ -31,19 +32,10 @@ export const forgotPassword = async (req, res) => {
       { expiresIn: "15m" }, // Token valid for 15 minutes
     );
 
-    const resetUrl = `http://localhost:5173/resetPassword/${targetUser.S_ID}/${token}`;
-
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USERNAME,
-        pass: process.env.EMAIL_PASS,
-      },
-    });
+    const resetUrl = `${clientAppUrl}/reset-password/${targetUser.S_ID}/${token}`;
 
     const mailOptions = {
       to: email,
-      from: process.env.EMAIL_USER,
       subject: "Password Reset Request",
       text: `Hello ${targetUser.Username} Click this link to reset your password: ${resetUrl}`,
       html: `
@@ -62,7 +54,7 @@ export const forgotPassword = async (req, res) => {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendEmail(mailOptions);
     res.status(200).json({
       message: "Reset link sent to email.",
       token,
@@ -517,13 +509,7 @@ export const sendOtp = async (req, res) => {
   );
 
   try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: process.env.EMAIL_USERNAME, pass: process.env.EMAIL_PASS },
-    });
-
-    await transporter.sendMail({
-      from: process.env.EMAIL_USERNAME,
+    await sendEmail({
       to: email,
       subject: "Verification Code",
       html: `Your OTP is: <b>${otpCode}</b>. It expires in 5 minutes.`,

@@ -7,7 +7,7 @@ import {
   deleteMessage,
   markMessagesSeen,
   getMessageInfo,
-} from "../Controllers/ChatsController.js";
+} from "../controllers/ChatsController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 

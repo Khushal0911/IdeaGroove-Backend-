@@ -1,5 +1,5 @@
 import passport from "passport";
-import db from "./db.js"; // Ensure this path is correct relative to passport.js
+import db from "./database.js";
 
 passport.serializeUser((user, done) => {
   console.log("--- SERIALIZING USER ---");

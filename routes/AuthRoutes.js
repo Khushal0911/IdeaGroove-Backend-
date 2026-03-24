@@ -13,7 +13,7 @@ import {
 } from "../controllers/AuthController.js";
 const authRouter = express.Router();
 import { uploadProfilePic } from "../config/cloud.js";
-import { updateComplaintStatus } from "../Controllers/AdminController.js";
+import { updateComplaintStatus } from "../controllers/AdminController.js";
 
 authRouter.post("/login", userLogin);
 authRouter.get("/session", getCurrentSession);

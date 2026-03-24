@@ -1,13 +1,45 @@
-import nodemailer from "nodemailer";
+import {
+  SendSmtpEmail,
+  TransactionalEmailsApi,
+  TransactionalEmailsApiApiKeys,
+} from "@getbrevo/brevo";
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
+const transactionalEmailsApi = new TransactionalEmailsApi();
+transactionalEmailsApi.setApiKey(
+  TransactionalEmailsApiApiKeys.apiKey,
+  process.env.BREVO_API_KEY,
+);
+const BREVO_FROM_EMAIL = process.env.EMAIL_USER;
 
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+export const sendEmail = async ({ to, subject, text, html }) => {
+  const message = new SendSmtpEmail();
+  const recipients = Array.isArray(to) ? to : [to];
+
+  message.sender = { email: BREVO_FROM_EMAIL };
+  message.to = recipients.map((recipient) =>
+    typeof recipient === "string" ? { email: recipient } : recipient,
+  );
+  message.subject = subject;
+
+  if (text) {
+    message.textContent = text;
+  }
+
+  if (html) {
+    message.htmlContent = html;
+  }
+
+  try {
+    await transactionalEmailsApi.sendTransacEmail(message);
+  } catch (error) {
+    throw new Error(
+      error?.response?.body?.message ||
+        error?.body?.message ||
+        error?.message ||
+        "Failed to send email",
+    );
+  }
+};
 
 const getBlockTemplate = (
   studentName,
@@ -111,8 +143,7 @@ export const sendBlockEmail = async ({
   reason,
   extraInfo,
 }) => {
-  await transporter.sendMail({
-    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
     to: toEmail,
     subject: `Your ${contentType} has been blocked - IdeaGroove`,
     html: getBlockTemplate(
@@ -132,8 +163,7 @@ export const sendUnblockEmail = async ({
   contentTitle,
   extraInfo,
 }) => {
-  await transporter.sendMail({
-    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
     to: toEmail,
     subject: `Your ${contentType} has been restored - IdeaGroove`,
     html: getUnblockTemplate(studentName, contentType, contentTitle, extraInfo),
@@ -201,8 +231,7 @@ export const sendComplaintStatusEmail = async ({
   newStatus,
   reason,
 }) => {
-  await transporter.sendMail({
-    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
     to: toEmail,
     subject: `Your complaint has been ${newStatus} - IdeaGroove`,
     html: getComplaintStatusTemplate(
@@ -281,8 +310,7 @@ export const sendStudentBlockEmail = async ({
   studentName,
   reason,
 }) => {
-  await transporter.sendMail({
-    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
     to: toEmail,
     subject: `Your IdeaGroove account has been suspended`,
     html: getStudentBlockTemplate(studentName, reason),
@@ -290,8 +318,7 @@ export const sendStudentBlockEmail = async ({
 };
 
 export const sendStudentUnblockEmail = async ({ toEmail, studentName }) => {
-  await transporter.sendMail({
-    from: `"IdeaGroove Admin" <${process.env.EMAIL_USER}>`,
+  await sendEmail({
     to: toEmail,
     subject: `Your IdeaGroove account has been reinstated`,
     html: getStudentUnblockTemplate(studentName),

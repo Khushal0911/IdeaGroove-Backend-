@@ -1,10 +1,11 @@
 import { Server } from "socket.io";
 import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
+import { corsOrigin } from "../config/runtime.js";
 
 export const initSocket = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
-      origin: process.env.CLIENT_URL || "http://localhost:5173",
+      origin: corsOrigin,
       methods: ["GET", "POST"],
       credentials: true,
     },
@@ -34,7 +35,7 @@ export const initSocket = (httpServer) => {
       socket.join(String(roomId));
 
       try {
-        const { default: db } = await import("../config/db.js");
+        const { default: db } = await import("../config/database.js");
 
         let memberId = null;
         if (studentId) {
@@ -162,7 +163,7 @@ export const initSocket = (httpServer) => {
       if (!roomId || !message?.trim() || !studentId) return;
 
       try {
-        const { default: db } = await import("../config/db.js");
+        const { default: db } = await import("../config/database.js");
 
         const [membership] = await db.query(
           `SELECT Member_ID FROM chat_room_members_tbl
@@ -222,7 +223,7 @@ export const initSocket = (httpServer) => {
 
     socket.on("message:load_more", async ({ roomId, offset = 0 }) => {
       try {
-        const { default: db } = await import("../config/db.js");
+        const { default: db } = await import("../config/database.js");
 
         // ✅ FIX: Also include deleted messages in load_more so history is consistent
         const [messages] = await db.query(
@@ -303,7 +304,7 @@ export const initSocket = (httpServer) => {
       if (!roomId || !studentId) return;
 
       try {
-        const { default: db } = await import("../config/db.js");
+        const { default: db } = await import("../config/database.js");
 
         const [memberData] = await db.query(
           `SELECT Member_ID FROM chat_room_members_tbl
@@ -351,7 +352,7 @@ export const initSocket = (httpServer) => {
         if (!roomId || !fileUrl || !studentId) return;
 
         try {
-          const { default: db } = await import("../config/db.js");
+          const { default: db } = await import("../config/database.js");
 
           const [membership] = await db.query(
             `SELECT Member_ID FROM chat_room_members_tbl
@@ -418,7 +419,7 @@ export const initSocket = (httpServer) => {
       if (!roomId || !messageId || !newText?.trim() || !studentId) return;
 
       try {
-        const { default: db } = await import("../config/db.js");
+        const { default: db } = await import("../config/database.js");
         const { encryptedData, iv } = encryptMessage(newText.trim());
 
         const [result] = await db.query(
@@ -455,7 +456,7 @@ export const initSocket = (httpServer) => {
       if (!roomId || !messageId || !studentId) return;
 
       try {
-        const { default: db } = await import("../config/db.js");
+        const { default: db } = await import("../config/database.js");
 
         const [result] = await db.query(
           `UPDATE chats_tbl SET Is_Deleted = 1
@@ -495,7 +496,7 @@ export const initSocket = (httpServer) => {
       if (!studentId || !roomIds?.length) return;
 
       try {
-        const { default: db } = await import("../config/db.js");
+        const { default: db } = await import("../config/database.js");
 
         const [memberData] = await db.query(
           `SELECT Room_ID, Member_ID FROM chat_room_members_tbl

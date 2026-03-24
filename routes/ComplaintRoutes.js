@@ -5,7 +5,7 @@ import {
   getAllComplaints,
   getUserComplaints,
 } from "../controllers/ComplaintController.js";
-import { updateComplaintStatus } from "../Controllers/AdminController.js";
+import { updateComplaintStatus } from "../controllers/AdminController.js";
 
 const complaintRouter = express.Router();
 
