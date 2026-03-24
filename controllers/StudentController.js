@@ -273,8 +273,6 @@ export const getPublicProfile = async (req, res) => {
         s.Email, s.Year, s.is_Active, s.College_ID, c.College_Name,
         s.Degree_ID, d.Degree_Name,
 
-<<<<<<< HEAD
-<<<<<<< HEAD
         s.College_ID,
         c.College_Name,
 
@@ -319,9 +317,6 @@ export const getPublicProfile = async (req, res) => {
         ON shm.Hobby_ID = h.Hobby_ID
 
       WHERE s.S_ID = ?
-=======
-=======
->>>>>>> e6e7a6040bd46630ac7a7b0e808c45256422bf7b
         (SELECT COUNT(*) FROM notes_tbl n WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
         (SELECT COUNT(*) FROM question_tbl q WHERE q.Added_By = s.S_ID AND q.Is_Active = 1) AS questions_count,
         (SELECT COUNT(*) FROM event_tbl e WHERE e.Added_By = s.S_ID AND e.Is_Active = 1) AS events_count,
@@ -332,20 +327,16 @@ export const getPublicProfile = async (req, res) => {
       LEFT JOIN college_tbl c ON s.College_ID = c.College_ID
       LEFT JOIN degree_tbl d ON s.Degree_ID = d.Degree_ID
       WHERE s.S_ID = ? AND s.is_Active = 1
-<<<<<<< HEAD
->>>>>>> dca9d9b2f273daeac7580b9d6db1266d3452419e
-=======
->>>>>>> e6e7a6040bd46630ac7a7b0e808c45256422bf7b
       `,
       [id],
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ error: "User not found or account deactivated" });
+      return res
+        .status(404)
+        .json({ error: "User not found or account deactivated" });
     }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
     const profile = {
       ...rows[0],
       hobbies: [],
@@ -361,21 +352,7 @@ export const getPublicProfile = async (req, res) => {
     });
 
     res.status(200).json(profile);
-=======
-    const [hobbyRows] = await db.query(
-      `SELECT h.Hobby_ID, h.Hobby_Name 
-       FROM hobbies_tbl h
-       JOIN student_hobby_mapping_Tbl shm ON h.Hobby_ID = shm.Hobby_ID
-       WHERE shm.Student_ID = ?`,
-      [id],
-    );
 
-    res.status(200).json({
-      ...rows[0],
-     Hobbies: hobbyRows,} 
-    );
->>>>>>> dca9d9b2f273daeac7580b9d6db1266d3452419e
-=======
     const [hobbyRows] = await db.query(
       `SELECT h.Hobby_ID, h.Hobby_Name 
        FROM hobbies_tbl h
@@ -388,8 +365,6 @@ export const getPublicProfile = async (req, res) => {
       ...rows[0],
       hobbies: hobbyRows,
     });
-
->>>>>>> e6e7a6040bd46630ac7a7b0e808c45256422bf7b
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -930,7 +905,7 @@ export const deleteStudent = async (req, res) => {
     const deleteStudentQuery = `UPDATE student_tbl SET is_Active = 0 WHERE S_ID = ?;`;
     const [result] = await connection.query(deleteStudentQuery, [id]);
 
-     console.log("Full result:", result);        // ← add this
+    console.log("Full result:", result); // ← add this
     console.log("Affected Rows:", result.affectedRows);
     if (result.affectedRows > 0) {
       await connection.commit();
