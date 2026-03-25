@@ -38,9 +38,24 @@ export const getAllComplaints = async (req, res) => {
 
     const [complaints] = await db.query(query, [...queryParams, limit, offset]);
 
+    const [summaryRows] = await db.query(`
+      SELECT
+        COUNT(*) AS totalCount,
+        SUM(CASE WHEN Is_Active = 1 THEN 1 ELSE 0 END) AS activeCount,
+        SUM(CASE WHEN Is_Active = 0 THEN 1 ELSE 0 END) AS inactiveCount
+      FROM complaint_tbl
+    `);
+
+    const summary = summaryRows[0] || {
+      totalCount: 0,
+      activeCount: 0,
+      inactiveCount: 0,
+    };
+
     res.status(200).json({
       success: true,
       data: complaints,
+      summary,
       pagination: {
         total,
         page,
