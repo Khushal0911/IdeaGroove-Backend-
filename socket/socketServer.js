@@ -2,6 +2,19 @@ import { Server } from "socket.io";
 import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
 import { corsOrigin } from "../config/runtime.js";
 
+const getActiveMembership = async (db, roomId, studentId) => {
+  const [rows] = await db.query(
+    `SELECT Member_ID, Joined_On
+     FROM chat_room_members_tbl
+     WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1
+     ORDER BY Joined_On DESC, Member_ID DESC
+     LIMIT 1`,
+    [roomId, studentId],
+  );
+
+  return rows[0] || null;
+};
+
 export const initSocket = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
@@ -37,17 +50,11 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/database.js");
 
-        let memberId = null;
-        if (studentId) {
-          const [memberData] = await db.query(
-            `SELECT Member_ID FROM chat_room_members_tbl
-             WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
-            [roomId, studentId],
-          );
-          if (memberData.length > 0) {
-            memberId = memberData[0].Member_ID;
-          }
-        }
+        const membership = studentId
+          ? await getActiveMembership(db, roomId, studentId)
+          : null;
+        const memberId = membership?.Member_ID || null;
+        const joinedOn = membership?.Joined_On || null;
 
         // ✅ FIX: Removed `AND c.Is_Deleted = 0` so deleted messages are
         // included in history. Both sender and receiver see the
@@ -85,11 +92,12 @@ export const initSocket = (httpServer) => {
              FROM chats_tbl c
              JOIN student_tbl s ON c.Sender_ID = s.S_ID
              WHERE c.Room_ID = ?
+               AND (? IS NULL OR c.Sent_On >= ?)
              ORDER BY c.Sent_On DESC
              LIMIT 50
            ) recent_messages
            ORDER BY recent_messages.Sent_On ASC`,
-          [studentId, memberId, roomId],
+          [studentId, memberId, roomId, joinedOn, joinedOn],
         );
 
         const decryptedMessages = messages.map((msg) => {
@@ -133,8 +141,9 @@ export const initSocket = (httpServer) => {
              WHERE c.Room_ID = ?
                AND c.Sender_ID != ?
                AND c.Is_Deleted = 0
+               AND (? IS NULL OR c.Sent_On >= ?)
                AND cs.Seen_ID IS NULL`,
-            [memberId, roomId, studentId],
+            [memberId, roomId, studentId, joinedOn, joinedOn],
           );
 
           for (const row of unread) {
@@ -222,8 +231,15 @@ export const initSocket = (httpServer) => {
     });
 
     socket.on("message:load_more", async ({ roomId, offset = 0 }) => {
+      const studentId = socket.data.studentId;
+      if (!roomId || !studentId) return;
+
       try {
         const { default: db } = await import("../config/database.js");
+        const membership = await getActiveMembership(db, roomId, studentId);
+        if (!membership) return;
+        const memberId = membership.Member_ID;
+        const joinedOn = membership.Joined_On;
 
         // ✅ FIX: Also include deleted messages in load_more so history is consistent
         const [messages] = await db.query(
@@ -247,23 +263,17 @@ export const initSocket = (httpServer) => {
                )
                ELSE EXISTS(
                  SELECT 1 FROM chats_seen_tbl cs
-                 WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = (
-                   SELECT Member_ID
-                   FROM chat_room_members_tbl
-                   WHERE Room_ID = c.Room_ID
-                     AND Student_ID = ?
-                     AND Is_Active = 1
-                   LIMIT 1
-                 )
+                 WHERE cs.Message_ID = c.Message_ID AND cs.Member_ID = ?
                  LIMIT 1
                )
              END AS Is_Seen
            FROM chats_tbl c
            JOIN student_tbl s ON c.Sender_ID = s.S_ID
            WHERE c.Room_ID = ?
+             AND (? IS NULL OR c.Sent_On >= ?)
            ORDER BY c.Sent_On ASC
            LIMIT 50 OFFSET ?`,
-          [studentId, studentId, roomId, offset],
+          [studentId, memberId, roomId, joinedOn, joinedOn, offset],
         );
 
         const decryptedMessages = messages.map((msg) => {
@@ -306,14 +316,11 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/database.js");
 
-        const [memberData] = await db.query(
-          `SELECT Member_ID FROM chat_room_members_tbl
-           WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
-          [roomId, studentId],
-        );
-        if (memberData.length === 0) return;
+        const membership = await getActiveMembership(db, roomId, studentId);
+        if (!membership) return;
 
-        const memberId = memberData[0].Member_ID;
+        const memberId = membership.Member_ID;
+        const joinedOn = membership.Joined_On;
 
         const [unread] = await db.query(
           `SELECT c.Message_ID FROM chats_tbl c
@@ -322,8 +329,9 @@ export const initSocket = (httpServer) => {
            WHERE c.Room_ID = ?
              AND c.Sender_ID != ?
              AND c.Is_Deleted = 0
+             AND (? IS NULL OR c.Sent_On >= ?)
              AND cs.Seen_ID IS NULL`,
-          [memberId, roomId, studentId],
+          [memberId, roomId, studentId, joinedOn, joinedOn],
         );
 
         for (const row of unread) {
@@ -499,20 +507,23 @@ export const initSocket = (httpServer) => {
         const { default: db } = await import("../config/database.js");
 
         const [memberData] = await db.query(
-          `SELECT Room_ID, Member_ID FROM chat_room_members_tbl
+          `SELECT Room_ID, Member_ID, Joined_On FROM chat_room_members_tbl
            WHERE Student_ID = ? AND Is_Active = 1`,
           [studentId],
         );
 
         const memberMap = {};
         memberData.forEach((m) => {
-          memberMap[m.Room_ID] = m.Member_ID;
+          memberMap[m.Room_ID] = {
+            memberId: m.Member_ID,
+            joinedOn: m.Joined_On,
+          };
         });
 
         const counts = {};
         for (const roomId of roomIds) {
-          const memberId = memberMap[roomId];
-          if (!memberId) {
+          const member = memberMap[roomId];
+          if (!member) {
             counts[roomId] = 0;
             continue;
           }
@@ -524,8 +535,15 @@ export const initSocket = (httpServer) => {
              WHERE c.Room_ID = ?
                AND c.Sender_ID != ?
                AND c.Is_Deleted = 0
+               AND (? IS NULL OR c.Sent_On >= ?)
                AND cs.Seen_ID IS NULL`,
-            [memberId, roomId, studentId],
+            [
+              member.memberId,
+              roomId,
+              studentId,
+              member.joinedOn,
+              member.joinedOn,
+            ],
           );
           counts[roomId] = rows[0].cnt;
         }

@@ -97,31 +97,37 @@ export const getUserChatRooms = async (req, res) => {
         (
           SELECT Message_Text FROM chats_tbl
           WHERE Room_ID = r.Room_ID
+            AND Sent_On >= m.Joined_On
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Message,
         (
           SELECT Message_Type FROM chats_tbl
           WHERE Room_ID = r.Room_ID
+            AND Sent_On >= m.Joined_On
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Type,
         (
           SELECT Encryption_IV FROM chats_tbl
           WHERE Room_ID = r.Room_ID
+            AND Sent_On >= m.Joined_On
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_IV,
         (
           SELECT Sent_On FROM chats_tbl
           WHERE Room_ID = r.Room_ID
+            AND Sent_On >= m.Joined_On
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Message_At,
         (
           SELECT Sender_ID FROM chats_tbl
           WHERE Room_ID = r.Room_ID
+            AND Sent_On >= m.Joined_On
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Sender_ID,
         (
           SELECT Is_Deleted FROM chats_tbl
           WHERE Room_ID = r.Room_ID
+            AND Sent_On >= m.Joined_On
           ORDER BY Sent_On DESC LIMIT 1
         ) AS Last_Is_Deleted,
         (
@@ -129,6 +135,7 @@ export const getUserChatRooms = async (req, res) => {
           FROM chats_tbl c3
           JOIN student_tbl s3 ON c3.Sender_ID = s3.S_ID
           WHERE c3.Room_ID = r.Room_ID
+            AND c3.Sent_On >= m.Joined_On
           ORDER BY c3.Sent_On DESC LIMIT 1
         ) AS Last_Sender_Name,
         (
@@ -136,6 +143,7 @@ export const getUserChatRooms = async (req, res) => {
           FROM chats_tbl c3
           JOIN student_tbl s3 ON c3.Sender_ID = s3.S_ID
           WHERE c3.Room_ID = r.Room_ID
+            AND c3.Sent_On >= m.Joined_On
           ORDER BY c3.Sent_On DESC LIMIT 1
         ) AS Last_Sender_Username,
         (
@@ -147,6 +155,7 @@ export const getUserChatRooms = async (req, res) => {
               SELECT c4.Message_ID
               FROM chats_tbl c4
               WHERE c4.Room_ID = r.Room_ID
+                AND c4.Sent_On >= m.Joined_On
               ORDER BY c4.Sent_On DESC LIMIT 1
             )
               AND m4.Room_ID = r.Room_ID
@@ -155,6 +164,7 @@ export const getUserChatRooms = async (req, res) => {
                 SELECT c5.Sender_ID
                 FROM chats_tbl c5
                 WHERE c5.Room_ID = r.Room_ID
+                  AND c5.Sent_On >= m.Joined_On
                 ORDER BY c5.Sent_On DESC LIMIT 1
               )
             LIMIT 1
@@ -170,6 +180,7 @@ export const getUserChatRooms = async (req, res) => {
           WHERE c2.Room_ID = r.Room_ID
             AND c2.Sender_ID != m.Student_ID
             AND c2.Is_Deleted = 0
+            AND c2.Sent_On >= m.Joined_On
             AND cs2.Seen_ID IS NULL
         ) AS Unread_Count,
         (
@@ -189,7 +200,11 @@ export const getUserChatRooms = async (req, res) => {
       FROM chat_rooms_tbl r
       LEFT JOIN student_tbl creator ON r.Created_By = creator.S_ID
       JOIN (
-        SELECT Room_ID, Student_ID, MAX(Member_ID) AS Member_ID
+        SELECT
+          Room_ID,
+          Student_ID,
+          MAX(Member_ID) AS Member_ID,
+          MAX(Joined_On) AS Joined_On
         FROM chat_room_members_tbl
         WHERE Student_ID = ? AND Is_Active = 1
         GROUP BY Room_ID, Student_ID
@@ -298,7 +313,7 @@ export const getMessagesByRoom = async (req, res) => {
     const userId = req.user.Student_ID;
 
     const [membership] = await db.query(
-      `SELECT Member_ID FROM chat_room_members_tbl
+      `SELECT Member_ID, Joined_On FROM chat_room_members_tbl
        WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
       [roomId, userId],
     );
@@ -307,13 +322,16 @@ export const getMessagesByRoom = async (req, res) => {
       return res.status(403).json({ message: "Access denied" });
     }
 
+    const joinedOn = membership[0]?.Joined_On || null;
+
     const [messages] = await db.query(
       `SELECT c.*, s.username AS Sender_Username, s.name AS Sender_Name, s.Profile_Pic AS Sender_Profile_Pic
        FROM chats_tbl c
        JOIN student_tbl s ON c.Sender_ID = s.S_ID
        WHERE c.Room_ID = ?
+         AND (? IS NULL OR c.Sent_On >= ?)
        ORDER BY c.Sent_On ASC`,
-      [roomId],
+      [roomId, joinedOn, joinedOn],
     );
 
     const decryptedMessages = messages.map((msg) => {
@@ -387,7 +405,7 @@ export const markMessagesSeen = async (req, res) => {
     }
 
     const [membership] = await db.query(
-      `SELECT Member_ID FROM chat_room_members_tbl
+      `SELECT Member_ID, Joined_On FROM chat_room_members_tbl
        WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
       [room_id, userId],
     );
@@ -399,6 +417,7 @@ export const markMessagesSeen = async (req, res) => {
     }
 
     const memberId = membership[0].Member_ID;
+    const joinedOn = membership[0].Joined_On || null;
 
     const [unread] = await db.query(
       `SELECT c.Message_ID FROM chats_tbl c
@@ -407,8 +426,9 @@ export const markMessagesSeen = async (req, res) => {
        WHERE c.Room_ID = ?
          AND c.Sender_ID != ?
          AND c.Is_Deleted = 0
+         AND (? IS NULL OR c.Sent_On >= ?)
          AND cs.Seen_ID IS NULL`,
-      [memberId, room_id, userId],
+      [memberId, room_id, userId, joinedOn, joinedOn],
     );
 
     if (unread.length > 0) {

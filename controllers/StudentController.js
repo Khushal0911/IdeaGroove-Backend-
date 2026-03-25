@@ -796,17 +796,46 @@ export const updateStudent = async (req, res) => {
       return res.status(404).json({ error: "Student not found" });
     }
     const old = current[0];
+    const nextUsername =
+      username !== undefined ? String(username).trim() : old.Username;
+    const nextName = name !== undefined ? String(name).trim() : old.Name;
+    const nextRollNo =
+      roll_no !== undefined ? String(roll_no).trim() : old.Roll_No;
+    const nextEmail = email !== undefined ? String(email).trim() : old.Email;
+
+    if (!nextUsername) {
+      await connection.rollback();
+      return res.status(400).json({ error: "Username is required" });
+    }
+
+    const [existingUsername] = await connection.query(
+      "SELECT S_ID FROM student_tbl WHERE Username = ? AND S_ID <> ? LIMIT 1",
+      [nextUsername, student_id],
+    );
+    if (existingUsername.length > 0) {
+      await connection.rollback();
+      return res.status(409).json({ error: "Username is already taken" });
+    }
+
+    const [existingRollNo] = await connection.query(
+      "SELECT S_ID FROM student_tbl WHERE Roll_No = ? AND S_ID <> ? LIMIT 1",
+      [nextRollNo, student_id],
+    );
+    if (existingRollNo.length > 0) {
+      await connection.rollback();
+      return res.status(409).json({ error: "Roll No is already registered" });
+    }
 
     // 2. Prepare parameters: Use new value if provided, otherwise keep the old one
     // This prevents the "undefined" bind parameter error
     const params = [
-      username !== undefined ? username : old.Username,
-      name !== undefined ? name : old.Name,
-      roll_no !== undefined ? roll_no : old.Roll_No,
+      nextUsername,
+      nextName,
+      nextRollNo,
       college_id !== undefined ? college_id : old.College_ID,
       degree_id !== undefined ? degree_id : old.Degree_ID,
       year !== undefined ? year : old.Year,
-      email !== undefined ? email : old.Email,
+      nextEmail,
       profile_pic !== undefined ? profile_pic : old.Profile_Pic,
       student_id,
     ];
