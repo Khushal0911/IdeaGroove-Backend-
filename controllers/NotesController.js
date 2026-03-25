@@ -192,50 +192,78 @@ export const getUserNotes = async (req, res) => {
   }
 };
 
+const buildNoteDownloadUrlResponse = async (noteId, includeInactive = false) => {
+  const [result] = await db.query(
+    `SELECT N_ID, Note_File, File_Name
+     FROM notes_tbl
+     WHERE N_ID = ? ${includeInactive ? "" : "AND Is_Active = 1"}
+     LIMIT 1`,
+    [noteId],
+  );
+
+  const note = result[0];
+
+  if (!note?.Note_File) {
+    return {
+      statusCode: 404,
+      body: { status: false, error: "Note file not found" },
+    };
+  }
+
+  const asset = extractCloudinaryAssetDetails(note.Note_File, note.File_Name);
+
+  if (!asset) {
+    return {
+      statusCode: 200,
+      body: {
+        status: true,
+        url: note.Note_File,
+      },
+    };
+  }
+
+  const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
+  const signedUrl = cloudinary.utils.private_download_url(
+    asset.publicId,
+    asset.format,
+    {
+      resource_type: asset.resourceType,
+      type: "upload",
+      attachment: note.File_Name || true,
+      expires_at: expiresAt,
+    },
+  );
+
+  return {
+    statusCode: 200,
+    body: {
+      status: true,
+      url: signedUrl,
+    },
+  };
+};
+
 export const getNoteDownloadUrl = async (req, res) => {
   try {
     const noteId = req.params.id;
-    const [result] = await db.query(
-      `SELECT N_ID, Note_File, File_Name
-       FROM notes_tbl
-       WHERE N_ID = ? AND Is_Active = 1
-       LIMIT 1`,
-      [noteId],
+    const { statusCode, body } = await buildNoteDownloadUrlResponse(noteId);
+    res.status(statusCode).json(body);
+  } catch (err) {
+    console.error("Generate Note Download URL Error:", err);
+    res
+      .status(500)
+      .json({ status: false, error: "Failed to generate download link" });
+  }
+};
+
+export const getAdminNoteDownloadUrl = async (req, res) => {
+  try {
+    const noteId = req.params.id;
+    const { statusCode, body } = await buildNoteDownloadUrlResponse(
+      noteId,
+      true,
     );
-
-    const note = result[0];
-
-    if (!note?.Note_File) {
-      return res
-        .status(404)
-        .json({ status: false, error: "Note file not found" });
-    }
-
-    const asset = extractCloudinaryAssetDetails(note.Note_File, note.File_Name);
-
-    if (!asset) {
-      return res.status(200).json({
-        status: true,
-        url: note.Note_File,
-      });
-    }
-
-    const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
-    const signedUrl = cloudinary.utils.private_download_url(
-      asset.publicId,
-      asset.format,
-      {
-        resource_type: asset.resourceType,
-        type: "upload",
-        attachment: true,
-        expires_at: expiresAt,
-      },
-    );
-
-    res.status(200).json({
-      status: true,
-      url: signedUrl,
-    });
+    res.status(statusCode).json(body);
   } catch (err) {
     console.error("Generate Note Download URL Error:", err);
     res
@@ -320,7 +348,7 @@ export const updateNotes = async (req, res) => {
     New_Subject_Name,
   } = req.body;
   const Note_File = req.file ? req.file.path : null;
-  const File_Name = req.file ? req.file.filename : null;
+  const File_Name = req.file ? req.file.originalname : null;
 
   let connection;
   try {
