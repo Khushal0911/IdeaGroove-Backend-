@@ -1,36 +1,133 @@
 import db from "../config/database.js";
 
+const buildComplaintContentExpressions = () => {
+  const titleExpression = `
+    CASE
+      WHEN LOWER(c.Type) = 'question' THEN COALESCE(q.Question, 'Reported question not available')
+      WHEN LOWER(c.Type) = 'answer' THEN COALESCE(a.Answer, 'Reported answer not available')
+      WHEN LOWER(c.Type) = 'notes' THEN COALESCE(n.Description, n.File_Name, 'Reported note not available')
+      WHEN LOWER(c.Type) = 'groups' THEN COALESCE(cr.Room_Name, 'Reported group not available')
+      WHEN LOWER(c.Type) = 'event' THEN COALESCE(e.Description, 'Reported event not available')
+      WHEN LOWER(c.Type) = 'user' THEN CONCAT('@', COALESCE(s_reported.Username, 'unknown-user'))
+      WHEN LOWER(c.Type) = 'other' THEN 'IdeaGroove platform'
+      ELSE 'Reported activity'
+    END
+  `;
+
+  const ownerExpression = `
+    COALESCE(
+      sq.Username,
+      sa.Username,
+      sn.Username,
+      scr.Username,
+      se.Username,
+      s_reported.Username,
+      'N/A'
+    )
+  `;
+
+  const activityExpression = `
+    CASE
+      WHEN LOWER(c.Type) = 'question' THEN CONCAT('Question: ', COALESCE(q.Question, 'Reported question not available'))
+      WHEN LOWER(c.Type) = 'answer' THEN CONCAT('Answer: ', COALESCE(a.Answer, 'Reported answer not available'))
+      WHEN LOWER(c.Type) = 'notes' THEN CONCAT('Notes: ', COALESCE(n.Description, n.File_Name, 'Reported note not available'))
+      WHEN LOWER(c.Type) = 'groups' THEN CONCAT('Group: ', COALESCE(cr.Room_Name, 'Reported group not available'))
+      WHEN LOWER(c.Type) = 'event' THEN CONCAT('Event: ', COALESCE(e.Description, 'Reported event not available'))
+      WHEN LOWER(c.Type) = 'user' THEN CONCAT('User: @', COALESCE(s_reported.Username, 'unknown-user'))
+      WHEN LOWER(c.Type) = 'other' THEN 'Other: IdeaGroove platform'
+      ELSE 'Reported activity'
+    END
+  `;
+
+  return { titleExpression, ownerExpression, activityExpression };
+};
+
 export const getAllComplaints = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
     const search = req.query.search?.trim() || "";
+    const { titleExpression, ownerExpression, activityExpression } =
+      buildComplaintContentExpressions();
+
+    const [[studentFkRow]] = await db.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_NAME = 'complaint_tbl'
+       AND COLUMN_NAME IN ('S_ID', 'Student_ID', 'Student_Id', 'student_id')
+       LIMIT 1`,
+    );
+
+    const complaintStudentFk = studentFkRow?.COLUMN_NAME || "Student_ID";
 
     let conditions = ["c.Is_Active = 1"];
     const queryParams = [];
 
     if (search) {
-      conditions.push("(c.Subject LIKE ? OR c.Description LIKE ?)");
-      queryParams.push(`%${search}%`, `%${search}%`);
+      conditions.push(
+        `(
+          c.Complaint_Text LIKE ?
+          OR s.Name LIKE ?
+          OR c.Type LIKE ?
+          OR ${titleExpression} LIKE ?
+          OR ${activityExpression} LIKE ?
+          OR ${ownerExpression} LIKE ?
+        )`,
+      );
+      queryParams.push(
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+      );
     }
 
     const whereClause = conditions.join(" AND ");
 
     // Get total count for pagination
     const [countResult] = await db.query(
-      `SELECT COUNT(*) as total FROM complaint_tbl c WHERE ${whereClause}`,
+      `SELECT COUNT(*) as total
+       FROM complaint_tbl c
+       LEFT JOIN student_tbl s ON c.${complaintStudentFk} = s.S_ID
+       LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
+       LEFT JOIN student_tbl sq ON q.Added_By = sq.S_ID
+       LEFT JOIN answer_tbl a ON c.Type = 'answer' AND c.Content_ID = a.A_ID
+       LEFT JOIN student_tbl sa ON a.Answered_By = sa.S_ID
+       LEFT JOIN notes_tbl n ON c.Type = 'notes' AND c.Content_ID = n.N_ID
+       LEFT JOIN student_tbl sn ON n.Added_By = sn.S_ID
+       LEFT JOIN chat_rooms_tbl cr ON c.Type = 'groups' AND c.Content_ID = cr.Room_ID
+       LEFT JOIN student_tbl scr ON cr.Created_By = scr.S_ID
+       LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
+       LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
+       LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
+       WHERE ${whereClause}`,
       queryParams,
     );
     const total = countResult[0].total;
 
     const query = `
       SELECT 
-        c.*, 
-        s.username AS Student_Name, 
-        s.S_ID AS Student_ID
+        c.*,
+        s.Name AS Student_Name,
+        s.S_ID AS Student_ID,
+        ${titleExpression} AS Content_Title,
+        ${ownerExpression} AS Content_Owner_Name,
+        ${activityExpression} AS Reported_Activity
       FROM complaint_tbl c
-      LEFT JOIN student_tbl s ON c.Student_Id = s.S_ID
+      LEFT JOIN student_tbl s ON c.${complaintStudentFk} = s.S_ID
+      LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
+      LEFT JOIN student_tbl sq ON q.Added_By = sq.S_ID
+      LEFT JOIN answer_tbl a ON c.Type = 'answer' AND c.Content_ID = a.A_ID
+      LEFT JOIN student_tbl sa ON a.Answered_By = sa.S_ID
+      LEFT JOIN notes_tbl n ON c.Type = 'notes' AND c.Content_ID = n.N_ID
+      LEFT JOIN student_tbl sn ON n.Added_By = sn.S_ID
+      LEFT JOIN chat_rooms_tbl cr ON c.Type = 'groups' AND c.Content_ID = cr.Room_ID
+      LEFT JOIN student_tbl scr ON cr.Created_By = scr.S_ID
+      LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
+      LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
+      LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
       WHERE ${whereClause}
       ORDER BY c.Date DESC
       LIMIT ? OFFSET ?
@@ -76,6 +173,8 @@ export const getUserComplaints = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
+    const { titleExpression, ownerExpression, activityExpression } =
+      buildComplaintContentExpressions();
 
     const [countResult] = await db.query(
       `SELECT COUNT(*) as total FROM complaint_tbl WHERE Student_ID = ? AND Is_Active = 1`,
@@ -85,33 +184,25 @@ export const getUserComplaints = async (req, res) => {
 
     const query = `
       SELECT 
-    c.*,
-    -- Extracting the title/text of the reported content
-    COALESCE(q.Question, a.Answer, n.Description, cr.Room_Name, e.Description, s_reported.Username) AS Content_Title,
-    -- Extracting the Username of the person who created that content
-    COALESCE(sq.Username, sa.Username, sn.Username, scr.Username, se.Username, s_reported.Username) AS Content_Owner_Name
-FROM complaint_tbl c
--- Joins to get Content Details and their respective Owners
-LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
-LEFT JOIN student_tbl sq ON q.Added_By = sq.S_ID
-
-LEFT JOIN answer_tbl a ON c.Type = 'answer' AND c.Content_ID = a.A_ID
-LEFT JOIN student_tbl sa ON a.Answered_By = sa.S_ID
-
-LEFT JOIN notes_tbl n ON c.Type = 'notes' AND c.Content_ID = n.N_ID
-LEFT JOIN student_tbl sn ON n.Added_By = sn.S_ID
-
-LEFT JOIN chat_rooms_tbl cr ON c.Type = 'groups' AND c.Content_ID = cr.Room_ID
-LEFT JOIN student_tbl scr ON cr.Created_By = scr.S_ID
-
-LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
-LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
-
-LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
-
-WHERE c.Student_ID = ? AND c.Is_Active = 1
-ORDER BY c.Date DESC
-LIMIT ? OFFSET ?
+        c.*,
+        ${titleExpression} AS Content_Title,
+        ${ownerExpression} AS Content_Owner_Name,
+        ${activityExpression} AS Reported_Activity
+      FROM complaint_tbl c
+      LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
+      LEFT JOIN student_tbl sq ON q.Added_By = sq.S_ID
+      LEFT JOIN answer_tbl a ON c.Type = 'answer' AND c.Content_ID = a.A_ID
+      LEFT JOIN student_tbl sa ON a.Answered_By = sa.S_ID
+      LEFT JOIN notes_tbl n ON c.Type = 'notes' AND c.Content_ID = n.N_ID
+      LEFT JOIN student_tbl sn ON n.Added_By = sn.S_ID
+      LEFT JOIN chat_rooms_tbl cr ON c.Type = 'groups' AND c.Content_ID = cr.Room_ID
+      LEFT JOIN student_tbl scr ON cr.Created_By = scr.S_ID
+      LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
+      LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
+      LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
+      WHERE c.Student_ID = ? AND c.Is_Active = 1
+      ORDER BY c.Date DESC
+      LIMIT ? OFFSET ?
     `;
 
     const [complaints] = await db.query(query, [id, limit, offset]);

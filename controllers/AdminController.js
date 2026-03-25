@@ -1729,6 +1729,41 @@ export const getComplaintsReport = async (req, res) => {
     const filters = req.body || {};
     const where = [];
     const params = [];
+    const contentTitleExpression = `
+      CASE
+        WHEN LOWER(c.Type) = 'question' THEN COALESCE(q.Question, 'Reported question not available')
+        WHEN LOWER(c.Type) = 'answer' THEN COALESCE(a.Answer, 'Reported answer not available')
+        WHEN LOWER(c.Type) = 'notes' THEN COALESCE(n.Description, n.File_Name, 'Reported note not available')
+        WHEN LOWER(c.Type) = 'groups' THEN COALESCE(cr.Room_Name, 'Reported group not available')
+        WHEN LOWER(c.Type) = 'event' THEN COALESCE(e.Description, 'Reported event not available')
+        WHEN LOWER(c.Type) = 'user' THEN CONCAT('@', COALESCE(s_reported.Username, 'unknown-user'))
+        WHEN LOWER(c.Type) = 'other' THEN 'IdeaGroove platform'
+        ELSE 'Reported activity'
+      END
+    `;
+    const contentOwnerExpression = `
+      COALESCE(
+        sq.Username,
+        sa.Username,
+        sn.Username,
+        scr.Username,
+        se.Username,
+        s_reported.Username,
+        'N/A'
+      )
+    `;
+    const reportedActivityExpression = `
+      CASE
+        WHEN LOWER(c.Type) = 'question' THEN CONCAT('Question: ', COALESCE(q.Question, 'Reported question not available'))
+        WHEN LOWER(c.Type) = 'answer' THEN CONCAT('Answer: ', COALESCE(a.Answer, 'Reported answer not available'))
+        WHEN LOWER(c.Type) = 'notes' THEN CONCAT('Notes: ', COALESCE(n.Description, n.File_Name, 'Reported note not available'))
+        WHEN LOWER(c.Type) = 'groups' THEN CONCAT('Group: ', COALESCE(cr.Room_Name, 'Reported group not available'))
+        WHEN LOWER(c.Type) = 'event' THEN CONCAT('Event: ', COALESCE(e.Description, 'Reported event not available'))
+        WHEN LOWER(c.Type) = 'user' THEN CONCAT('User: @', COALESCE(s_reported.Username, 'unknown-user'))
+        WHEN LOWER(c.Type) = 'other' THEN 'Other: IdeaGroove platform'
+        ELSE 'Reported activity'
+      END
+    `;
 
     if (filters.type) {
       where.push("c.Type = ?");
@@ -1741,7 +1776,7 @@ export const getComplaintsReport = async (req, res) => {
     const [[fkCol]] = await db.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_NAME = 'complaint_tbl'
-       AND COLUMN_NAME IN ('S_ID','Student_ID','student_id')
+       AND COLUMN_NAME IN ('S_ID','Student_ID','Student_Id','student_id')
        LIMIT 1`,
     );
     const complaintFk = fkCol?.COLUMN_NAME || "S_ID";
@@ -1750,6 +1785,9 @@ export const getComplaintsReport = async (req, res) => {
       `SELECT
         c.Complaint_ID,
         c.Complaint_Text,
+        ${reportedActivityExpression} AS Reported_Activity,
+        ${contentTitleExpression} AS Content_Title,
+        ${contentOwnerExpression} AS Content_Owner_Name,
         c.Type AS Complaint_Type,
         DATE_FORMAT(c.Date, '%Y-%m-%d') AS Date,
         c.Status,
@@ -1757,6 +1795,17 @@ export const getComplaintsReport = async (req, res) => {
         DATEDIFF(NOW(), c.Date) AS age_days
       FROM complaint_tbl c
       LEFT JOIN student_tbl s ON s.S_ID = c.${complaintFk}
+      LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
+      LEFT JOIN student_tbl sq ON q.Added_By = sq.S_ID
+      LEFT JOIN answer_tbl a ON c.Type = 'answer' AND c.Content_ID = a.A_ID
+      LEFT JOIN student_tbl sa ON a.Answered_By = sa.S_ID
+      LEFT JOIN notes_tbl n ON c.Type = 'notes' AND c.Content_ID = n.N_ID
+      LEFT JOIN student_tbl sn ON n.Added_By = sn.S_ID
+      LEFT JOIN chat_rooms_tbl cr ON c.Type = 'groups' AND c.Content_ID = cr.Room_ID
+      LEFT JOIN student_tbl scr ON cr.Created_By = scr.S_ID
+      LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
+      LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
+      LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
       ${whereClause}
       ORDER BY c.Date DESC`,
       params,

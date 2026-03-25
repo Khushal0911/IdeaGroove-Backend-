@@ -413,23 +413,49 @@ export const userLogin = async (req, res, next) => {
   }
 };
 
-export const getCurrentSession = (req, res) => {
+export const getCurrentSession = async (req, res) => {
   if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
     return res.status(401).json({ message: "Unauthorized. Please log in." });
   }
 
-  return res.status(200).json({
-    user: {
-      id: req.user.S_ID,
-      S_ID: req.user.S_ID,
-      Name: req.user.Name,
-      Username: req.user.Username,
-      Email: req.user.Email,
-      Roll_No: req.user.Roll_No,
-      Year: req.user.Year,
-      Profile_Pic: req.user.Profile_Pic,
-    },
-  });
+  try {
+    const [hobbyRows] = await db.query(
+      `SELECT h.Hobby_Name
+       FROM hobbies_tbl h
+       JOIN student_hobby_mapping_tbl m ON h.Hobby_ID = m.Hobby_ID
+       WHERE m.Student_ID = ?`,
+      [req.user.S_ID],
+    );
+
+    const [collegeRows] = await db.query(
+      "SELECT College_Name FROM college_tbl WHERE College_ID = ?",
+      [req.user.College_ID],
+    );
+
+    const [degreeRows] = await db.query(
+      "SELECT Degree_Name FROM degree_tbl WHERE Degree_ID = ?",
+      [req.user.Degree_ID],
+    );
+
+    return res.status(200).json({
+      user: {
+        id: req.user.S_ID,
+        S_ID: req.user.S_ID,
+        Name: req.user.Name,
+        Username: req.user.Username,
+        Email: req.user.Email,
+        Roll_No: req.user.Roll_No,
+        Year: req.user.Year,
+        College: collegeRows[0]?.College_Name || "N/A",
+        Degree: degreeRows[0]?.Degree_Name || "N/A",
+        Profile_Pic: req.user.Profile_Pic,
+        Hobbies: hobbyRows.map((row) => row.Hobby_Name),
+      },
+    });
+  } catch (err) {
+    console.error("Restore Session Error:", err);
+    return res.status(500).json({ message: "Failed to restore session." });
+  }
 };
 
 export const userLogout = (req, res) => {
