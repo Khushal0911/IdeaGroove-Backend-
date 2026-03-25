@@ -54,8 +54,8 @@ export const getGroups = async (req, res) => {
     const whereClause = conditions.join(" AND ");
     const orderClause =
       filter === "oldest_to_newest"
-        ? "ORDER BY r.Created_On ASC"
-        : "ORDER BY r.Created_On DESC";
+        ? "ORDER BY r.Created_On ASC, r.Room_ID ASC"
+        : "ORDER BY r.Created_On DESC, r.Room_ID DESC";
 
     /* ---------- COUNT ---------- */
     const [countResult] = await db.query(
