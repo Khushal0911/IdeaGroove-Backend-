@@ -84,8 +84,8 @@ export const getNotes = async (req, res) => {
     const whereClause = conditions.join(" AND ");
     const orderClause =
       filter === "oldest_to_newest"
-        ? "ORDER BY n.Added_on ASC"
-        : "ORDER BY n.Added_on DESC";
+        ? "ORDER BY n.Added_on ASC, n.N_ID ASC"
+        : "ORDER BY n.Added_on DESC, n.N_ID DESC";
 
     const [countResult] = await db.query(
       `SELECT COUNT(*) as total 

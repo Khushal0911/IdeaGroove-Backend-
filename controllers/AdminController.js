@@ -1351,18 +1351,25 @@ export const getUsersReport = async (req, res) => {
       `SELECT
         s.S_ID,
         s.Name,
+        s.Username AS Username,
         s.Roll_No,
         s.Email,
         s.Year,
         s.is_Active,
         d.Degree_Name,
         col.College_Name,
-        h.Hobby_Name AS hobby_name
+        COALESCE(user_hobbies.hobby_name, '') AS hobby_name
       FROM student_tbl s
       LEFT JOIN degree_tbl d   ON d.Degree_ID   = s.Degree_ID
       LEFT JOIN college_tbl col ON col.College_ID = s.College_ID
-      LEFT JOIN student_hobby_mapping_tbl shm ON s.S_ID = shm.Student_ID
-      LEFT JOIN hobbies_tbl h  ON shm.Hobby_ID  = h.Hobby_ID
+      LEFT JOIN (
+        SELECT
+          shm.Student_ID,
+          GROUP_CONCAT(DISTINCT h.Hobby_Name ORDER BY h.Hobby_Name SEPARATOR ', ') AS hobby_name
+        FROM student_hobby_mapping_tbl shm
+        LEFT JOIN hobbies_tbl h ON h.Hobby_ID = shm.Hobby_ID
+        GROUP BY shm.Student_ID
+      ) AS user_hobbies ON user_hobbies.Student_ID = s.S_ID
       ${whereClause}
       ORDER BY s.Name ASC`,
       params,
@@ -1504,19 +1511,22 @@ export const getGroupsReport = async (req, res) => {
         cr.Is_Active,
         s.Name       AS student_name,
         h.Hobby_Name AS hobby_name,
-        GROUP_CONCAT(DISTINCT sm.Name ORDER BY sm.Name SEPARATOR ', ') AS member_names,
-        (
-          SELECT COUNT(*)
-          FROM chat_room_members_tbl cm2
-          WHERE cm2.Room_ID = cr.Room_ID AND cm2.Is_Active = 1
-        ) AS member_count
+        COALESCE(member_data.member_names, '') AS member_names,
+        COALESCE(member_data.member_count, 0) AS member_count
       FROM chat_rooms_tbl cr
       LEFT JOIN student_tbl s ON s.S_ID = cr.Created_By
       LEFT JOIN hobbies_tbl h ON h.Hobby_ID = cr.Based_On
-      LEFT JOIN chat_room_members_tbl cm ON cm.Room_ID = cr.Room_ID AND cm.Is_Active = 1
-      LEFT JOIN student_tbl sm ON sm.S_ID = cm.Student_ID
+      LEFT JOIN (
+        SELECT
+          cm.Room_ID,
+          COUNT(DISTINCT cm.Student_ID) AS member_count,
+          GROUP_CONCAT(DISTINCT sm.Name ORDER BY sm.Name SEPARATOR ', ') AS member_names
+        FROM chat_room_members_tbl cm
+        LEFT JOIN student_tbl sm ON sm.S_ID = cm.Student_ID
+        WHERE cm.Is_Active = 1
+        GROUP BY cm.Room_ID
+      ) AS member_data ON member_data.Room_ID = cr.Room_ID
       ${whereClause}
-      GROUP BY cr.Room_ID, cr.Room_Name, Created_On, cr.Is_Active, s.Name, h.Hobby_Name
       ORDER BY cr.Room_ID DESC`,
       params,
     );
@@ -1657,8 +1667,8 @@ export const getQnAReport = async (req, res) => {
         s.Name           AS student_name,
         sub.Subject_Name,
         d.Degree_Name,
-        COUNT(a.A_ID)    AS answer_count,
-        GROUP_CONCAT(DISTINCT a.Answer SEPARATOR ' | ') AS all_answers,
+        COALESCE(answer_data.answer_count, 0) AS answer_count,
+        COALESCE(answer_data.all_answers, '') AS all_answers,
         (
           SELECT a2.Answer
           FROM answer_tbl a2
@@ -1670,10 +1680,15 @@ export const getQnAReport = async (req, res) => {
       LEFT JOIN student_tbl s   ON s.S_ID        = q.Added_By
       LEFT JOIN degree_tbl d    ON d.Degree_ID    = s.Degree_ID
       LEFT JOIN subject_tbl sub ON sub.Subject_ID = q.Subject_ID
-      LEFT JOIN answer_tbl a    ON a.Q_ID         = q.Q_ID
+      LEFT JOIN (
+        SELECT
+          a.Q_ID,
+          COUNT(DISTINCT a.A_ID) AS answer_count,
+          GROUP_CONCAT(DISTINCT a.Answer ORDER BY a.A_ID SEPARATOR ', ') AS all_answers
+        FROM answer_tbl a
+        GROUP BY a.Q_ID
+      ) AS answer_data ON answer_data.Q_ID = q.Q_ID
       ${whereClause}
-      GROUP BY q.Q_ID, q.Question, q.Added_On, q.Is_Active,
-               s.Name, sub.Subject_Name, d.Degree_Name
       ORDER BY q.Added_On DESC`,
       params,
     );
