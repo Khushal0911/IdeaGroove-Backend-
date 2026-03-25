@@ -1442,20 +1442,21 @@ export const getEventsReport = async (req, res) => {
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
-    const blocked = total - active;
+    const inactive = total - active;
     const upcoming = rows.filter((r) => r.event_status === "Upcoming").length;
     const past = total - upcoming;
 
     const summary = [
       { label: "Total Events", value: total },
+      { label: "Active", value: active },
+      { label: "Blocked", value: inactive },
       { label: "Upcoming", value: upcoming },
       { label: "Past", value: past },
-      { label: "Blocked", value: blocked },
     ];
 
     const donut = [
-      { label: "Upcoming", value: upcoming, color: "#f59e0b" },
-      { label: "Past", value: past, color: "#94a3b8" },
+      { label: "Active", value: active, color: "#10b981" },
+      { label: "Blocked", value: inactive, color: "#ef4444" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("event_tbl", "Event_Date");
@@ -1507,6 +1508,7 @@ export const getGroupsReport = async (req, res) => {
       `SELECT
         cr.Room_ID,
         cr.Room_Name,
+        cr.Description,
         ${dateExpr} AS Created_On,
         cr.Is_Active,
         s.Name       AS student_name,
@@ -1533,7 +1535,7 @@ export const getGroupsReport = async (req, res) => {
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
-    const blocked = total - active;
+    const inactive = total - active;
     const totalMembers = rows.reduce(
       (sum, r) => sum + (r.member_count || 0),
       0,
@@ -1543,13 +1545,13 @@ export const getGroupsReport = async (req, res) => {
     const summary = [
       { label: "Total Groups", value: total },
       { label: "Active", value: active },
-      { label: "Blocked", value: blocked },
+      { label: "Blocked", value: inactive },
       { label: "Avg Members", value: avgMembers },
     ];
 
     const donut = [
       { label: "Active", value: active, color: "#9333ea" },
-      { label: "Blocked", value: blocked, color: "#94a3b8" },
+      { label: "Blocked", value: inactive, color: "#ef4444" },
     ].filter((s) => s.value > 0);
 
     let bars = [];
@@ -1607,7 +1609,7 @@ export const getNotesReport = async (req, res) => {
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
-    const blocked = total - active;
+    const inactive = total - active;
     const uniqueAuthors = new Set(
       rows.map((r) => r.student_name).filter(Boolean),
     ).size;
@@ -1615,13 +1617,13 @@ export const getNotesReport = async (req, res) => {
     const summary = [
       { label: "Total Notes", value: total },
       { label: "Active", value: active },
-      { label: "Blocked", value: blocked },
+      { label: "Blocked", value: inactive },
       { label: "Contributors", value: uniqueAuthors },
     ];
 
     const donut = [
       { label: "Active", value: active, color: "#e11d48" },
-      { label: "Blocked", value: blocked, color: "#94a3b8" },
+      { label: "Blocked", value: inactive, color: "#ef4444" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("notes_tbl", "Added_On");
@@ -1695,21 +1697,23 @@ export const getQnAReport = async (req, res) => {
 
     const total = rows.length;
     const active = rows.filter((r) => r.Is_Active === 1).length;
-    const blocked = total - active;
+    const inactive = total - active;
     const answered = rows.filter((r) => r.answer_count > 0).length;
     const unanswered = total - answered;
 
     const summary = [
       { label: "Total Questions", value: total },
       { label: "Active", value: active },
+      { label: "Blocked", value: inactive },
       { label: "Answered", value: answered },
       { label: "Unanswered", value: unanswered },
     ];
 
     const donut = [
+      { label: "Active", value: active, color: "#10b981" },
+      { label: "Blocked", value: inactive, color: "#ef4444" },
       { label: "Answered", value: answered, color: "#25eb63" },
       { label: "Unanswered", value: unanswered, color: "#f59e0b" },
-      { label: "Blocked", value: blocked, color: "#94a3b8" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("question_tbl", "Added_On");
@@ -1785,6 +1789,7 @@ export const getComplaintsReport = async (req, res) => {
       `SELECT
         c.Complaint_ID,
         c.Complaint_Text,
+        c.Is_Active,
         ${reportedActivityExpression} AS Reported_Activity,
         ${contentTitleExpression} AS Content_Title,
         ${contentOwnerExpression} AS Content_Owner_Name,
@@ -1812,6 +1817,8 @@ export const getComplaintsReport = async (req, res) => {
     );
 
     const total = rows.length;
+    const active = rows.filter((r) => r.Is_Active === 1).length;
+    const inactive = total - active;
     const resolved = rows.filter((r) => r.Status === "Resolved").length;
     const pending = rows.filter((r) => r.Status === "Pending").length;
     const inProgress = rows.filter((r) => r.Status === "In-Progress").length;
@@ -1819,6 +1826,8 @@ export const getComplaintsReport = async (req, res) => {
 
     const summary = [
       { label: "Total", value: total },
+      { label: "Active", value: active },
+      { label: "Blocked", value: inactive },
       { label: "Resolved", value: resolved },
       { label: "Pending", value: pending },
       { label: "In-Progress", value: inProgress },
@@ -1826,9 +1835,11 @@ export const getComplaintsReport = async (req, res) => {
     ];
 
     const donut = [
+      { label: "Active", value: active, color: "#10b981" },
+      { label: "Blocked", value: inactive, color: "#ef4444" },
       { label: "Resolved", value: resolved, color: "#25eb63" },
       { label: "Pending", value: pending, color: "#f59e0b" },
-      { label: "In-Progress", value: inProgress, color: "#ef4444" },
+      { label: "In-Progress", value: inProgress, color: "#3b82f6" },
     ].filter((s) => s.value > 0);
 
     const bars = await getMonthlyTrend("complaint_tbl", "Date");

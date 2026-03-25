@@ -261,6 +261,7 @@
 // };
 
 import db from "../config/database.js";
+import { ensureLookupValue, resolveHobbyIds } from "../utils/masterData.js";
 
 const parseHobbyIds = (value) => {
   if (Array.isArray(value)) {
@@ -294,6 +295,37 @@ const parseHobbyIds = (value) => {
   }
 
   return [];
+};
+
+const parseNameList = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => item?.toString().trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(trimmedValue);
+    if (Array.isArray(parsedValue)) {
+      return parsedValue
+        .map((item) => item?.toString().trim())
+        .filter(Boolean);
+    }
+  } catch {}
+
+  return trimmedValue
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
 };
 
 export const getPublicProfile = async (req, res) => {
@@ -773,13 +805,16 @@ export const updateStudent = async (req, res) => {
     roll_no,
     college_id,
     degree_id,
+    New_Degree_Name,
     year,
     email,
     hobbies,
+    New_Hobbies,
   } = req.body;
 
   const profile_pic = req.file ? req.file.path : undefined;
   const parsedHobbies = parseHobbyIds(hobbies);
+  const parsedNewHobbies = parseNameList(New_Hobbies);
 
   let connection;
   try {
@@ -828,12 +863,20 @@ export const updateStudent = async (req, res) => {
 
     // 2. Prepare parameters: Use new value if provided, otherwise keep the old one
     // This prevents the "undefined" bind parameter error
+    const resolvedDegreeId =
+      degree_id !== undefined && degree_id !== ""
+        ? degree_id
+        : New_Degree_Name
+          ? (await ensureLookupValue(connection, "degree", New_Degree_Name))
+              .id
+          : old.Degree_ID;
+
     const params = [
       nextUsername,
       nextName,
       nextRollNo,
       college_id !== undefined ? college_id : old.College_ID,
-      degree_id !== undefined ? degree_id : old.Degree_ID,
+      resolvedDegreeId,
       year !== undefined ? year : old.Year,
       nextEmail,
       profile_pic !== undefined ? profile_pic : old.Profile_Pic,
@@ -848,13 +891,19 @@ export const updateStudent = async (req, res) => {
     await connection.execute(updateQuery, params);
 
     // 3. Sync Hobbies
-    if (hobbies !== undefined) {
+    if (hobbies !== undefined || parsedNewHobbies.length > 0) {
+      const resolvedHobbyIds = await resolveHobbyIds(
+        connection,
+        parsedHobbies,
+        parsedNewHobbies,
+      );
+
       await connection.query(
         "DELETE FROM student_hobby_mapping_tbl WHERE Student_ID = ?",
         [student_id],
       );
-      if (parsedHobbies.length > 0) {
-        const hobbyValues = parsedHobbies.map((id) => [student_id, id]);
+      if (resolvedHobbyIds.length > 0) {
+        const hobbyValues = resolvedHobbyIds.map((id) => [student_id, id]);
         await connection.query(
           "INSERT INTO student_hobby_mapping_tbl (Student_ID, Hobby_ID) VALUES ?",
           [hobbyValues],

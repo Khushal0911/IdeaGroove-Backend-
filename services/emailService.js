@@ -37,13 +37,14 @@ const normalizeRecipient = (recipient) =>
         name: recipient.name,
       };
 
-export const sendEmail = async ({ to, subject, text, html }) => {
+export const sendEmail = async ({ to, subject, text, html, from }) => {
   const recipients = Array.isArray(to) ? to : [to];
+  const fromEmail = from || senderEmail;
   let lastError = null;
 
   if (brevoApiKey) {
     const message = new SendSmtpEmail();
-    message.sender = { email: senderEmail };
+    message.sender = { email: fromEmail };
     message.to = recipients.map((recipient) =>
       typeof recipient === "string" ? { email: recipient } : recipient,
     );
@@ -68,7 +69,7 @@ export const sendEmail = async ({ to, subject, text, html }) => {
   if (smtpTransporter) {
     try {
       await smtpTransporter.sendMail({
-        from: senderEmail,
+        from: fromEmail,
         to: recipients.map(normalizeRecipient),
         subject,
         text,
