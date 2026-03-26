@@ -103,6 +103,36 @@ AND Is_Active = 1`,
   }
 };
 
+export const getAdminEvents = async (req, res) => {
+  try {
+    const [events] = await db.query(`
+      SELECT
+        e.E_ID,
+        e.Description,
+        DATE_FORMAT(e.Event_Date, '%Y-%m-%d') AS Event_Date,
+        DATE_FORMAT(e.Added_On, '%Y-%m-%d') AS Added_On,
+        e.Poster_File,
+        e.Interested,
+        e.Not_Interested,
+        e.Is_Active,
+        s.S_ID AS Organizer_ID,
+        s.Username AS Organizer_Name
+      FROM event_tbl e
+      LEFT JOIN student_tbl s ON s.S_ID = e.Added_By
+      ORDER BY e.Event_Date DESC, e.E_ID DESC
+    `);
+
+    return res.status(200).json({
+      success: true,
+      total: events.length,
+      data: events,
+    });
+  } catch (err) {
+    console.error("Fetch Admin Events Error:", err);
+    return res.status(500).json({ error: "Failed to fetch admin events" });
+  }
+};
+
 // export const updateComplaintStatus = async (req, res) => {
 //   const { id, status } = req.body;
 
