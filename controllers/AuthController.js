@@ -5,8 +5,6 @@ import { sendEmail } from "../services/emailService.js";
 import { ensureLookupValue, resolveHobbyIds } from "../utils/masterData.js";
 import { clientAppUrl } from "../config/runtime.js";
 
-const FORGOT_PASSWORD_SENDER = "theideagroove@gmail.com";
-
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
@@ -56,10 +54,16 @@ export const forgotPassword = async (req, res) => {
       `,
     };
 
-    await sendEmail({
-      ...mailOptions,
-      from: FORGOT_PASSWORD_SENDER,
-    });
+    try {
+      await sendEmail(mailOptions);
+    } catch (emailErr) {
+      console.error("Forgot Password Email Error:", emailErr);
+      return res.status(500).json({
+        message:
+          "Failed to send reset email. Please verify the email service configuration.",
+      });
+    }
+
     res.status(200).json({
       message: "Reset link sent to email.",
       token,

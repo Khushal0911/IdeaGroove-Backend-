@@ -1,5 +1,6 @@
 import express from "express";
 import {
+  getAdminEvents,
   adminLogin,
   adminLogout,
   blockContent,
@@ -23,6 +24,7 @@ const adminRouter = express.Router();
 adminRouter.post("/login", adminLogin);
 adminRouter.post("/logout", adminLogout);
 adminRouter.get("/dashboard-stats", getDashboardStats);
+adminRouter.get("/events", getAdminEvents);
 adminRouter.get("/top-contributor", getTopContributor);
 adminRouter.get("/recent-activity", getRecentActivity);
 adminRouter.get("/notes", getNotes);
