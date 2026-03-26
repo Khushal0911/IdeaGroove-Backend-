@@ -1357,6 +1357,47 @@ const getMonthlyTrend = async (tableName, dateColumn) => {
   return rows;
 };
 
+const normalizeFilterValues = (value) => {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((item) => String(item ?? "").trim()))].filter(
+      Boolean,
+    );
+  }
+
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  const normalized = String(value).trim();
+  return normalized ? [normalized] : [];
+};
+
+const addWhereInClause = (
+  where,
+  params,
+  column,
+  rawValues,
+  transform = (value) => value,
+) => {
+  const values = normalizeFilterValues(rawValues)
+    .map(transform)
+    .filter((value) => value !== "" && value !== null && value !== undefined);
+
+  if (!values.length) {
+    return [];
+  }
+
+  if (values.length === 1) {
+    where.push(`${column} = ?`);
+    params.push(values[0]);
+    return values;
+  }
+
+  where.push(`${column} IN (${values.map(() => "?").join(",")})`);
+  params.push(...values);
+  return values;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 0. USERS REPORT  —  POST /admin/users-report
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1366,14 +1407,8 @@ export const getUsersReport = async (req, res) => {
     const where = [];
     const params = [];
 
-    if (filters.degree) {
-      where.push("d.Degree_Name = ?");
-      params.push(filters.degree);
-    }
-    if (filters.college) {
-      where.push("col.College_Name = ?");
-      params.push(filters.college);
-    }
+    addWhereInClause(where, params, "d.Degree_Name", filters.degree);
+    addWhereInClause(where, params, "col.College_Name", filters.college);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1447,10 +1482,17 @@ export const getEventsReport = async (req, res) => {
   try {
     const filters = req.body || {};
     const where = [];
+    const requestedStatuses = normalizeFilterValues(filters.event_status).map(
+      (status) => status.toLowerCase(),
+    );
+    const wantsUpcoming = requestedStatuses.includes("upcoming");
+    const wantsPast = requestedStatuses.includes("past");
 
-    if (filters.event_status === "Upcoming")
+    if (wantsUpcoming && !wantsPast) {
       where.push("e.Event_Date >= CURDATE()");
-    if (filters.event_status === "Past") where.push("e.Event_Date < CURDATE()");
+    } else if (wantsPast && !wantsUpcoming) {
+      where.push("e.Event_Date < CURDATE()");
+    }
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1507,18 +1549,8 @@ export const getGroupsReport = async (req, res) => {
     const where = [];
     const params = [];
 
-    // Filter by the room's associated hobby (via chat_rooms_tbl → hobbies_tbl direct FK)
-    // If your chat_rooms_tbl has a Hobby_ID column use this:
-    if (filters.hobby) {
-      where.push("h.Hobby_Name = ?");
-      params.push(filters.hobby);
-    }
-
-    if (Array.isArray(filters.groups) && filters.groups.length > 0) {
-      const placeholders = filters.groups.map(() => "?").join(",");
-      where.push(`cr.Room_Name IN (${placeholders})`);
-      params.push(...filters.groups);
-    }
+    addWhereInClause(where, params, "h.Hobby_Name", filters.hobby);
+    addWhereInClause(where, params, "cr.Room_Name", filters.groups);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1607,14 +1639,8 @@ export const getNotesReport = async (req, res) => {
     const where = [];
     const params = [];
 
-    if (filters.degree) {
-      where.push("d.Degree_Name = ?");
-      params.push(filters.degree);
-    }
-    if (filters.subject) {
-      where.push("sub.Subject_Name = ?");
-      params.push(filters.subject);
-    }
+    addWhereInClause(where, params, "d.Degree_Name", filters.degree);
+    addWhereInClause(where, params, "sub.Subject_Name", filters.subject);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1674,19 +1700,9 @@ export const getQnAReport = async (req, res) => {
     const where = [];
     const params = [];
 
-    if (filters.degree) {
-      where.push("d.Degree_Name = ?");
-      params.push(filters.degree);
-    }
-    if (filters.subject) {
-      where.push("sub.Subject_Name = ?");
-      params.push(filters.subject);
-    }
-    if (Array.isArray(filters.questions) && filters.questions.length > 0) {
-      const placeholders = filters.questions.map(() => "?").join(",");
-      where.push(`q.Question IN (${placeholders})`);
-      params.push(...filters.questions);
-    }
+    addWhereInClause(where, params, "d.Degree_Name", filters.degree);
+    addWhereInClause(where, params, "sub.Subject_Name", filters.subject);
+    addWhereInClause(where, params, "q.Question", filters.questions);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1799,10 +1815,9 @@ export const getComplaintsReport = async (req, res) => {
       END
     `;
 
-    if (filters.type) {
-      where.push("c.Type = ?");
-      params.push(filters.type);
-    }
+    addWhereInClause(where, params, "LOWER(c.Type)", filters.type, (type) =>
+      type.toLowerCase(),
+    );
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
