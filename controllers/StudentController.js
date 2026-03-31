@@ -262,6 +262,10 @@
 
 import db from "../config/database.js";
 import { ensureLookupValue, resolveHobbyIds } from "../utils/masterData.js";
+import {
+  activeStudentExistsCondition,
+  isStudentActive,
+} from "../utils/studentVisibility.js";
 
 const parseHobbyIds = (value) => {
   if (Array.isArray(value)) {
@@ -374,6 +378,7 @@ export const getPublicProfile = async (req, res) => {
       LEFT JOIN hobbies_tbl h
         ON shm.Hobby_ID = h.Hobby_ID
       WHERE s.S_ID = ?
+        AND s.is_Active = 1
       `,
       [id],
     );
@@ -482,6 +487,13 @@ export const getStudentActivities = async (req, res) => {
   const { type } = req.query;
 
   try {
+    const targetUserActive = await isStudentActive(db, id);
+    if (!targetUserActive) {
+      return res
+        .status(404)
+        .json({ error: "User not found or account deactivated" });
+    }
+
     let query = "";
     let params = [id];
 
@@ -494,7 +506,9 @@ export const getStudentActivities = async (req, res) => {
           LEFT JOIN student_tbl st ON st.S_ID = n.Added_By
           LEFT JOIN degree_tbl d   ON d.Degree_ID   = st.Degree_ID
           LEFT JOIN subject_tbl s  ON s.Subject_ID  = n.Subject_ID
-          WHERE n.Added_By = ? AND n.Is_Active = 1
+          WHERE n.Added_By = ?
+            AND n.Is_Active = 1
+            AND ${activeStudentExistsCondition("n.Added_By")}
           ORDER BY n.Added_On DESC
         `;
         break;
@@ -522,13 +536,17 @@ export const getStudentActivities = async (req, res) => {
               )
               FROM answer_tbl a
               LEFT JOIN student_tbl ans ON ans.S_ID = a.Answered_By
-              WHERE a.Q_ID = q.Q_ID AND a.Is_Active = 1
+              WHERE a.Q_ID = q.Q_ID
+                AND a.Is_Active = 1
+                AND ${activeStudentExistsCondition("a.Answered_By")}
             ) AS answers
           FROM question_tbl q
           LEFT JOIN student_tbl st ON st.S_ID = q.Added_By
           LEFT JOIN degree_tbl d   ON d.Degree_ID  = st.Degree_ID
           LEFT JOIN subject_tbl s  ON s.Subject_ID = q.Subject_ID
-          WHERE q.Added_By = ? AND q.Is_Active = 1
+          WHERE q.Added_By = ?
+            AND q.Is_Active = 1
+            AND ${activeStudentExistsCondition("q.Added_By")}
           ORDER BY q.Added_On DESC
         `;
         break;
@@ -538,7 +556,9 @@ export const getStudentActivities = async (req, res) => {
           SELECT E_ID AS id, Description AS title, Added_On AS date,
                  Event_Date AS eventDate, NULL AS course, NULL AS type
           FROM event_tbl
-          WHERE Added_By = ? AND Is_Active = 1
+          WHERE Added_By = ?
+            AND Is_Active = 1
+            AND ${activeStudentExistsCondition("event_tbl.Added_By")}
           ORDER BY Added_On DESC
         `;
         break;
@@ -572,6 +592,7 @@ export const getStudentActivities = async (req, res) => {
           LEFT JOIN chat_rooms_tbl cr ON cr.Room_ID   = crm.Room_ID
           LEFT JOIN hobbies_tbl h ON h.Hobby_ID = cr.Based_On
           WHERE crm.Student_ID = ? AND crm.Is_Active = 1
+            AND ${activeStudentExistsCondition("cr.Created_By")}
           ORDER BY crm.Joined_On DESC
         `;
         break;
@@ -633,6 +654,7 @@ export const getAllStudents = async (req, res) => {
 
   LEFT JOIN hobbies_tbl h 
     ON shm.Hobby_ID = h.Hobby_ID
+  WHERE s.is_Active = 1
 
   ORDER BY s.S_ID
 `);

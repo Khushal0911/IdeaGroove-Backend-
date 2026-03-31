@@ -1,4 +1,8 @@
 import db from "../config/database.js";
+import {
+  activeStudentExistsCondition,
+  isStudentActive,
+} from "../utils/studentVisibility.js";
 
 const MAX_GROUP_NAME_LENGTH = 150;
 const MAX_GROUP_DESCRIPTION_LENGTH = 255;
@@ -41,7 +45,11 @@ export const getGroups = async (req, res) => {
     const search = req.query.search?.trim() || "";
     const filter = req.query.filter || "all";
 
-    let conditions = ["r.Is_Active = 1", "r.Room_Type = 'group'"];
+    let conditions = [
+      "r.Is_Active = 1",
+      "r.Room_Type = 'group'",
+      activeStudentExistsCondition("r.Created_By"),
+    ];
     const queryParams = [];
 
     if (search) {
@@ -82,7 +90,7 @@ export const getGroups = async (req, res) => {
         s.username AS Creator_Name,
         s.S_ID AS Creator_ID,
         h.Hobby_Name,
-        COUNT(DISTINCT m.Student_ID) AS Member_Count,
+        COUNT(DISTINCT sm.S_ID) AS Member_Count,
 
         (
           SELECT COALESCE(
@@ -98,8 +106,11 @@ export const getGroups = async (req, res) => {
             JSON_ARRAY()
           )
           FROM chat_room_members_tbl rm
-          LEFT JOIN student_tbl s2 ON rm.Student_ID = s2.S_ID
-          WHERE rm.Room_ID = r.Room_ID AND rm.Is_Active = 1
+          JOIN student_tbl s2
+            ON rm.Student_ID = s2.S_ID
+           AND s2.is_Active = 1
+          WHERE rm.Room_ID = r.Room_ID
+            AND rm.Is_Active = 1
         ) AS Members
 
       FROM chat_rooms_tbl r
@@ -107,6 +118,9 @@ export const getGroups = async (req, res) => {
       LEFT JOIN hobbies_tbl h ON r.Based_On = h.Hobby_ID
       LEFT JOIN chat_room_members_tbl m 
         ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+      LEFT JOIN student_tbl sm
+        ON m.Student_ID = sm.S_ID
+       AND sm.is_Active = 1
 
       WHERE ${whereClause}
 
@@ -158,7 +172,9 @@ export const getUserGroups = async (req, res) => {
         AND m_self.Student_ID = ?
         AND m_self.Is_Active = 1
       WHERE r.Is_Active = 1
-        AND LOWER(r.Room_Type) = 'group'`;
+        AND LOWER(r.Room_Type) = 'group'
+        AND ${activeStudentExistsCondition("r.Created_By")}
+        AND ${activeStudentExistsCondition("m_self.Student_ID")}`;
 
     const [countResult] = await db.query(countQuery, [userId]);
     const total = countResult[0].total;
@@ -183,7 +199,7 @@ export const getUserGroups = async (req, res) => {
           ELSE 'joined'
         END AS Group_Relationship,
         COALESCE(m_self.Joined_on, r.Created_On) AS Activity_On,
-        COUNT(DISTINCT m.Student_ID) AS Member_Count,
+        COUNT(DISTINCT sm.S_ID) AS Member_Count,
 
         (
           SELECT COALESCE(
@@ -199,8 +215,11 @@ export const getUserGroups = async (req, res) => {
             JSON_ARRAY()
           )
           FROM chat_room_members_tbl rm
-          LEFT JOIN student_tbl s2 ON rm.Student_ID = s2.S_ID
-          WHERE rm.Room_ID = r.Room_ID AND rm.Is_Active = 1
+          JOIN student_tbl s2
+            ON rm.Student_ID = s2.S_ID
+           AND s2.is_Active = 1
+          WHERE rm.Room_ID = r.Room_ID
+            AND rm.Is_Active = 1
         ) AS Members
       FROM chat_rooms_tbl r
       INNER JOIN chat_room_members_tbl m_self
@@ -211,8 +230,13 @@ export const getUserGroups = async (req, res) => {
       LEFT JOIN hobbies_tbl h ON r.Based_On = h.Hobby_ID
       LEFT JOIN chat_room_members_tbl m
         ON r.Room_ID = m.Room_ID AND m.Is_Active = 1
+      LEFT JOIN student_tbl sm
+        ON m.Student_ID = sm.S_ID
+       AND sm.is_Active = 1
       WHERE r.Is_Active = 1
         AND LOWER(r.Room_Type) = 'group'
+        AND ${activeStudentExistsCondition("r.Created_By")}
+        AND ${activeStudentExistsCondition("m_self.Student_ID")}
       GROUP BY
         r.Room_ID,
         r.Room_Name,
@@ -284,6 +308,12 @@ export const addGroup = async (req, res) => {
   try {
     connection = await db.getConnection();
     await connection.beginTransaction();
+
+    const creatorActive = await isStudentActive(connection, Created_By);
+    if (!creatorActive) {
+      await connection.rollback();
+      return res.status(403).json({ error: "This account is inactive." });
+    }
 
     const addGroupQuery = `INSERT INTO chat_rooms_tbl
       (Room_Type, Room_Name, Based_On, Created_By, Created_On, Is_Active, Description) 
@@ -423,6 +453,30 @@ export const joinGroup = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
+    const requesterActive = await isStudentActive(connection, Student_ID);
+    if (!requesterActive) {
+      await connection.rollback();
+      return res.status(403).json({ error: "This account is inactive." });
+    }
+
+    const [groupAccess] = await connection.query(
+      `SELECT r.Room_ID
+       FROM chat_rooms_tbl r
+       JOIN student_tbl s ON s.S_ID = r.Created_By
+       WHERE r.Room_ID = ?
+         AND r.Is_Active = 1
+         AND s.is_Active = 1
+       LIMIT 1`,
+      [Room_ID],
+    );
+
+    if (groupAccess.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        error: "Group not found or unavailable",
+      });
+    }
+
     const [existing] = await connection.query(
       `SELECT * FROM chat_room_members_tbl WHERE Room_ID = ? AND Student_ID = ?`,
       [Room_ID, Student_ID],
@@ -433,7 +487,11 @@ export const joinGroup = async (req, res) => {
 
     if (existing.length > 0) {
       if (existing[0].Is_Active === 1) {
-        finalStatus = "Already a member";
+        await connection.commit();
+        return res.status(200).json({
+          status: true,
+          message: "Already a member",
+        });
       } else {
         [joinResult] = await connection.query(
           `UPDATE chat_room_members_tbl SET Is_Active = 1, Joined_On = NOW(), Left_On = NULL WHERE Room_ID = ? AND Student_ID = ?`,
@@ -542,7 +600,7 @@ export const viewMembers = async (req, res) => {
       SELECT rm.role as role, rm.Student_ID, s.S_ID, s.username, s.name, s.Profile_Pic, r.Room_ID 
       FROM chat_room_members_tbl rm
       LEFT JOIN chat_rooms_tbl r ON r.Room_ID = rm.Room_ID
-      LEFT JOIN student_tbl s ON s.S_ID = rm.Student_ID
+      JOIN student_tbl s ON s.S_ID = rm.Student_ID AND s.is_Active = 1
       WHERE r.Room_ID = ?
         AND rm.Is_Active = 1
       ORDER BY CASE WHEN LOWER(rm.Role) = 'admin' THEN 0 ELSE 1 END, s.Name ASC`;

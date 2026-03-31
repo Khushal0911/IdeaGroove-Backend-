@@ -1,78 +1,155 @@
 import db from "../config/database.js";
 import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
+import {
+  CHAT_UNAVAILABLE_MESSAGE,
+  INACTIVE_ACCOUNT_MESSAGE,
+  getRoomSendPermission,
+} from "../utils/chatPermissions.js";
+import { isStudentActive } from "../utils/studentVisibility.js";
+
+const DIRECT_ROOM_LOCK_TIMEOUT_SECONDS = 10;
+
+const getDirectRoomParticipantIds = (firstStudentId, secondStudentId) =>
+  [Number(firstStudentId), Number(secondStudentId)].sort((a, b) => a - b);
+
+const buildDirectRoomLockKey = (firstStudentId, secondStudentId) => {
+  const [smallerStudentId, largerStudentId] = getDirectRoomParticipantIds(
+    firstStudentId,
+    secondStudentId,
+  );
+
+  return `direct_room:${smallerStudentId}:${largerStudentId}`;
+};
+
+const findOldestDirectRoom = async (executor, firstStudentId, secondStudentId) => {
+  const [smallerStudentId, largerStudentId] = getDirectRoomParticipantIds(
+    firstStudentId,
+    secondStudentId,
+  );
+
+  const [rooms] = await executor.query(
+    `SELECT r.Room_ID
+     FROM chat_rooms_tbl r
+     JOIN chat_room_members_tbl m
+       ON r.Room_ID = m.Room_ID
+      AND m.Is_Active = 1
+     WHERE r.Room_Type = 'direct'
+       AND r.Is_Active = 1
+     GROUP BY r.Room_ID
+     HAVING COUNT(DISTINCT m.Student_ID) = 2
+       AND SUM(m.Student_ID = ?) > 0
+       AND SUM(m.Student_ID = ?) > 0
+     ORDER BY r.Room_ID ASC
+     LIMIT 1`,
+    [smallerStudentId, largerStudentId],
+  );
+
+  return rooms[0]?.Room_ID || null;
+};
 
 /**
  * POST /api/chats/create-room
  */
 export const createChatRoom = async (req, res) => {
   const connection = await db.getConnection();
+  let transactionStarted = false;
+  let directRoomLockKey = null;
+
   try {
     const { receiver_id, room_type = "direct" } = req.body;
-    const senderId = req.user.Student_ID;
+    const senderId = Number(req.user.Student_ID);
+    const receiverId = Number(receiver_id);
 
-    await connection.beginTransaction();
-
-    if (room_type === "direct") {
-      if (!receiver_id) {
-        return res
-          .status(400)
-          .json({ message: "receiver_id is required for direct chat" });
-      }
-
-      if (receiver_id === senderId) {
-        return res
-          .status(400)
-          .json({ message: "You cannot chat with yourself" });
-      }
-
-      const [existingRoom] = await connection.query(
-        `SELECT r.Room_ID
-         FROM chat_rooms_tbl r
-         JOIN chat_room_members_tbl m1 ON r.Room_ID = m1.Room_ID
-         JOIN chat_room_members_tbl m2 ON r.Room_ID = m2.Room_ID
-         WHERE r.Room_Type = 'direct'
-           AND r.Is_Active = 1
-           AND m1.Student_ID = ?
-           AND m2.Student_ID = ?
-           AND m1.Is_Active = 1
-           AND m2.Is_Active = 1
-         LIMIT 1`,
-        [senderId, receiver_id],
-      );
-
-      if (existingRoom.length > 0) {
-        await connection.commit();
-        return res.status(200).json({
-          message: "Room already exists",
-          roomId: existingRoom[0].Room_ID,
-        });
-      }
-
-      const [roomResult] = await connection.query(
-        `INSERT INTO chat_rooms_tbl (Room_Type, Room_Name, Created_By)
-         VALUES ('direct', NULL, ?)`,
-        [senderId],
-      );
-
-      const roomId = roomResult.insertId;
-
-      await connection.query(
-        `INSERT INTO chat_room_members_tbl (Room_ID, Student_ID, Role)
-         VALUES (?, ?, 'member'), (?, ?, 'member')`,
-        [roomId, senderId, roomId, receiver_id],
-      );
-
-      await connection.commit();
-      return res.status(201).json({ message: "Direct room created", roomId });
+    if (room_type !== "direct") {
+      return res.status(400).json({ message: "Invalid room_type" });
     }
 
+    if (!Number.isInteger(receiverId) || receiverId <= 0) {
+      return res
+        .status(400)
+        .json({ message: "receiver_id is required for direct chat" });
+    }
+
+    if (receiverId === senderId) {
+      return res.status(400).json({ message: "You cannot chat with yourself" });
+    }
+
+    const senderActive = await isStudentActive(connection, senderId);
+    if (!senderActive) {
+      return res.status(403).json({ message: INACTIVE_ACCOUNT_MESSAGE });
+    }
+
+    const receiverActive = await isStudentActive(connection, receiverId);
+    if (!receiverActive) {
+      return res.status(403).json({ message: CHAT_UNAVAILABLE_MESSAGE });
+    }
+
+    directRoomLockKey = buildDirectRoomLockKey(senderId, receiverId);
+
+    const [lockRows] = await connection.query(
+      `SELECT GET_LOCK(?, ?) AS Lock_Acquired`,
+      [directRoomLockKey, DIRECT_ROOM_LOCK_TIMEOUT_SECONDS],
+    );
+
+    if (Number(lockRows?.[0]?.Lock_Acquired) !== 1) {
+      return res.status(503).json({
+        message: "Unable to start this chat right now. Please try again.",
+      });
+    }
+
+    await connection.beginTransaction();
+    transactionStarted = true;
+
+    const existingRoomId = await findOldestDirectRoom(
+      connection,
+      senderId,
+      receiverId,
+    );
+
+    if (existingRoomId) {
+      await connection.commit();
+      transactionStarted = false;
+
+      return res.status(200).json({
+        message: "Room already exists",
+        roomId: existingRoomId,
+      });
+    }
+
+    const [roomResult] = await connection.query(
+      `INSERT INTO chat_rooms_tbl (Room_Type, Room_Name, Created_By)
+       VALUES ('direct', NULL, ?)`,
+      [senderId],
+    );
+
+    const roomId = roomResult.insertId;
+
+    await connection.query(
+      `INSERT INTO chat_room_members_tbl (Room_ID, Student_ID, Role)
+       VALUES (?, ?, 'member'), (?, ?, 'member')`,
+      [roomId, senderId, roomId, receiverId],
+    );
+
     await connection.commit();
-    return res.status(400).json({ message: "Invalid room_type" });
+    transactionStarted = false;
+
+    return res.status(201).json({ message: "Direct room created", roomId });
   } catch (error) {
-    await connection.rollback();
+    if (transactionStarted) {
+      await connection.rollback();
+    }
+
     console.error("createChatRoom error:", error);
     res.status(500).json({ message: "Server error" });
   } finally {
+    if (directRoomLockKey) {
+      try {
+        await connection.query(`SELECT RELEASE_LOCK(?)`, [directRoomLockKey]);
+      } catch (releaseError) {
+        console.error("createChatRoom release lock error:", releaseError);
+      }
+    }
+
     connection.release();
   }
 };
@@ -94,6 +171,25 @@ export const getUserChatRooms = async (req, res) => {
         r.Created_By,
         creator.name AS Creator_Name,
         creator.username AS Creator_Username,
+        CASE
+          WHEN NOT EXISTS (
+            SELECT 1
+            FROM student_tbl self_student
+            WHERE self_student.S_ID = ?
+              AND self_student.is_Active = 1
+          ) THEN 0
+          WHEN LOWER(r.Room_Type) = 'direct'
+            AND EXISTS (
+              SELECT 1
+              FROM chat_room_members_tbl direct_members
+              JOIN student_tbl direct_students
+                ON direct_members.Student_ID = direct_students.S_ID
+              WHERE direct_members.Room_ID = r.Room_ID
+                AND direct_members.Is_Active = 1
+                AND direct_students.is_Active = 0
+            ) THEN 0
+          ELSE 1
+        END AS Can_Send,
         (
           SELECT Message_Text FROM chats_tbl
           WHERE Room_ID = r.Room_ID
@@ -211,7 +307,7 @@ export const getUserChatRooms = async (req, res) => {
       ) m ON r.Room_ID = m.Room_ID
       WHERE r.Is_Active = 1
       ORDER BY Last_Message_At DESC`,
-      [userId],
+      [userId, userId],
     );
 
     const formatted = rooms.map((room) => {
@@ -259,15 +355,12 @@ export const sendMessage = async (req, res) => {
 
     await connection.beginTransaction();
 
-    const [membership] = await connection.query(
-      `SELECT Member_ID FROM chat_room_members_tbl
-       WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
-      [room_id, senderId],
-    );
-
-    if (membership.length === 0) {
+    const permission = await getRoomSendPermission(connection, room_id, senderId);
+    if (!permission.allowed) {
       await connection.rollback();
-      return res.status(403).json({ message: "Access denied" });
+      return res
+        .status(permission.status || 403)
+        .json({ message: permission.message });
     }
 
     const { encryptedData, iv } = encryptMessage(message_text);

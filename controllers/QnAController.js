@@ -1,5 +1,6 @@
 import db from "../config/database.js";
 import { resolveDegreeSubjectIds } from "../utils/masterData.js";
+import { activeStudentExistsCondition } from "../utils/studentVisibility.js";
 
 export const getQnA = async (req, res) => {
   try {
@@ -12,7 +13,7 @@ export const getQnA = async (req, res) => {
     const subjectId = req.query.subject ? parseInt(req.query.subject) : null;
 
     // Build dynamic WHERE conditions
-    let conditions = ["q.Is_Active = 1"];
+    let conditions = ["q.Is_Active = 1", activeStudentExistsCondition("q.Added_By")];
     const queryParams = [];
 
     if (search) {
@@ -68,6 +69,7 @@ export const getQnA = async (req, res) => {
           FROM answer_tbl a2
           WHERE a2.Q_ID = q.Q_ID 
             AND a2.Is_Active = 1
+            AND ${activeStudentExistsCondition("a2.Answered_By")}
         ) AS Total_Answers,
 
         (
@@ -89,6 +91,7 @@ export const getQnA = async (req, res) => {
               ON a3.Answered_By = s2.S_ID
           WHERE a3.Q_ID = q.Q_ID
             AND a3.Is_Active = 1
+            AND ${activeStudentExistsCondition("a3.Answered_By")}
         ) AS Answers
 
     FROM question_tbl q
@@ -151,7 +154,9 @@ export const getAnswersByQuestion = async (req, res) => {
         s.username AS Answer_Author
       FROM answer_tbl a
       LEFT JOIN student_tbl s ON a.Answered_By = s.S_ID
-      WHERE a.Q_ID = ? AND a.Is_Active = 1
+      WHERE a.Q_ID = ?
+        AND a.Is_Active = 1
+        AND ${activeStudentExistsCondition("a.Answered_By")}
       ORDER BY a.Answered_On ASC`,
       [Q_ID],
     );
@@ -170,6 +175,7 @@ export const getUserQuestions = async (req, res) => {
       `SELECT COUNT(DISTINCT q.Q_ID) AS total
        FROM question_tbl q
        WHERE q.Is_Active = 1
+         AND ${activeStudentExistsCondition("q.Added_By")}
          AND (
            q.Added_By = ?
            OR EXISTS (
@@ -178,6 +184,7 @@ export const getUserQuestions = async (req, res) => {
              WHERE au.Q_ID = q.Q_ID
                AND au.Answered_By = ?
                AND au.Is_Active = 1
+               AND ${activeStudentExistsCondition("au.Answered_By")}
            )
          )`,
       [userId, userId],
@@ -207,6 +214,7 @@ export const getUserQuestions = async (req, res) => {
             WHERE au.Q_ID = q.Q_ID
               AND au.Answered_By = ?
               AND au.Is_Active = 1
+              AND ${activeStudentExistsCondition("au.Answered_By")}
           ) THEN 1
           ELSE 0
         END AS Has_User_Answer,
@@ -217,6 +225,7 @@ export const getUserQuestions = async (req, res) => {
             WHERE au.Q_ID = q.Q_ID
               AND au.Answered_By = ?
               AND au.Is_Active = 1
+              AND ${activeStudentExistsCondition("au.Answered_By")}
           ),
           q.Added_On
         ) AS Activity_On,
@@ -226,6 +235,7 @@ export const getUserQuestions = async (req, res) => {
           FROM answer_tbl a2
           WHERE a2.Q_ID = q.Q_ID
             AND a2.Is_Active = 1
+            AND ${activeStudentExistsCondition("a2.Answered_By")}
         ) AS Total_Answers,
 
         (
@@ -246,6 +256,7 @@ export const getUserQuestions = async (req, res) => {
           LEFT JOIN student_tbl s2 ON a3.Answered_By = s2.S_ID
           WHERE a3.Q_ID = q.Q_ID
             AND a3.Is_Active = 1
+            AND ${activeStudentExistsCondition("a3.Answered_By")}
         ) AS Answers
 
       FROM question_tbl q
@@ -253,6 +264,7 @@ export const getUserQuestions = async (req, res) => {
       LEFT JOIN degree_tbl d ON q.Degree_ID = d.Degree_ID
       LEFT JOIN subject_tbl s ON q.Subject_ID = s.Subject_ID
       WHERE q.Is_Active = 1
+        AND ${activeStudentExistsCondition("q.Added_By")}
         AND (
           q.Added_By = ?
           OR EXISTS (
@@ -261,6 +273,7 @@ export const getUserQuestions = async (req, res) => {
             WHERE au.Q_ID = q.Q_ID
               AND au.Answered_By = ?
               AND au.Is_Active = 1
+              AND ${activeStudentExistsCondition("au.Answered_By")}
           )
         )
       ORDER BY Activity_On DESC, q.Added_On DESC

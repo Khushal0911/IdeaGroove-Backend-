@@ -1,6 +1,7 @@
 import db from "../config/database.js";
 import { cloudinary } from "../config/cloud.js";
 import { resolveDegreeSubjectIds } from "../utils/masterData.js";
+import { activeStudentExistsCondition } from "../utils/studentVisibility.js";
 
 const extractCloudinaryAssetDetails = (fileUrl, fallbackFileName = "") => {
   if (!fileUrl) return null;
@@ -61,7 +62,7 @@ export const getNotes = async (req, res) => {
     const degreeId = req.query.degree ? parseInt(req.query.degree) : null;
     const subjectId = req.query.subject ? parseInt(req.query.subject) : null;
 
-    let conditions = ["n.Is_Active = 1"];
+    let conditions = ["n.Is_Active = 1", activeStudentExistsCondition("n.Added_By")];
     const queryParams = [];
 
     if (search) {
@@ -147,7 +148,11 @@ export const getUserNotes = async (req, res) => {
     const offset = (page - 1) * limit;
 
     const [countResult] = await db.query(
-      `SELECT COUNT(*) as total FROM notes_tbl WHERE Added_By = ? AND Is_Active = 1`,
+      `SELECT COUNT(*) as total
+       FROM notes_tbl n
+       WHERE n.Added_By = ?
+         AND n.Is_Active = 1
+         AND ${activeStudentExistsCondition("n.Added_By")}`,
       [userId],
     );
     const total = countResult[0].total;
@@ -171,7 +176,9 @@ export const getUserNotes = async (req, res) => {
       LEFT JOIN student_tbl s   ON n.Added_By = s.S_ID
       LEFT JOIN degree_tbl d    ON n.Degree_ID = d.Degree_ID
       LEFT JOIN subject_tbl sub ON n.Subject_ID = sub.Subject_ID
-      WHERE n.Added_By = ? AND n.Is_Active = 1
+      WHERE n.Added_By = ?
+        AND n.Is_Active = 1
+        AND ${activeStudentExistsCondition("n.Added_By")}
       ORDER BY n.Added_on DESC
       LIMIT ? OFFSET ?`;
 
@@ -194,9 +201,10 @@ export const getUserNotes = async (req, res) => {
 
 const buildNoteDownloadUrlResponse = async (noteId, includeInactive = false) => {
   const [result] = await db.query(
-    `SELECT N_ID, Note_File, File_Name
-     FROM notes_tbl
-     WHERE N_ID = ? ${includeInactive ? "" : "AND Is_Active = 1"}
+    `SELECT n.N_ID, n.Note_File, n.File_Name
+     FROM notes_tbl n
+     WHERE n.N_ID = ?
+       ${includeInactive ? "" : `AND n.Is_Active = 1 AND ${activeStudentExistsCondition("n.Added_By")}`}
      LIMIT 1`,
     [noteId],
   );

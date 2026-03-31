@@ -1,4 +1,5 @@
 import db from "../config/database.js";
+import { activeStudentExistsCondition } from "../utils/studentVisibility.js";
 
 export const getEvents = async (req, res) => {
   try {
@@ -8,7 +9,7 @@ export const getEvents = async (req, res) => {
     const search = req.query.search?.trim() || "";
     const filter = req.query.filter || "all";
 
-    let conditions = ["e.Is_Active = 1"];
+    let conditions = ["e.Is_Active = 1", activeStudentExistsCondition("e.Added_By")];
     const queryParams = [];
 
     if (search) {
@@ -17,9 +18,9 @@ export const getEvents = async (req, res) => {
     }
 
     if (filter === "upcoming") {
-      conditions.push("e.Event_Date >= NOW()");
+      conditions.push("DATE(e.Event_Date) >= CURDATE()");
     } else if (filter === "past") {
-      conditions.push("e.Event_Date < NOW()");
+      conditions.push("DATE(e.Event_Date) < CURDATE()");
     }
 
     const whereClause = conditions.join(" AND ");
@@ -71,8 +72,10 @@ export const getUserEvents = async (req, res) => {
 
     const countQuery = `
       SELECT COUNT(*) as total
-      FROM event_tbl
-      WHERE Is_Active = 1 AND Added_By = ?
+      FROM event_tbl e
+      WHERE e.Is_Active = 1
+        AND e.Added_By = ?
+        AND ${activeStudentExistsCondition("e.Added_By")}
     `;
     const [countResult] = await db.query(countQuery, [userId]);
     const total = countResult[0].total;
@@ -81,7 +84,9 @@ export const getUserEvents = async (req, res) => {
       SELECT e.*, s.username as Contact_Person
       FROM event_tbl e
       LEFT JOIN student_tbl s ON e.Added_By = s.S_ID
-      WHERE e.Is_Active = 1 AND e.Added_By = ?
+      WHERE e.Is_Active = 1
+        AND e.Added_By = ?
+        AND ${activeStudentExistsCondition("e.Added_By")}
       ORDER BY Event_Date DESC
       LIMIT ? OFFSET ?
     `;
@@ -247,12 +252,21 @@ export const updateEventReaction = async (req, res) => {
 
     const operator = action === "add" ? "+" : "-";
 
-    await db.query(
+    const [result] = await db.query(
       `UPDATE event_tbl 
        SET ${column} = GREATEST(${column} ${operator} 1, 0)
-       WHERE E_ID = ?`,
+       WHERE E_ID = ?
+         AND Is_Active = 1
+         AND DATE(Event_Date) >= CURDATE()
+         AND ${activeStudentExistsCondition("event_tbl.Added_By")}`,
       [E_ID],
     );
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({
+        error: "Reactions are disabled for past or unavailable events",
+      });
+    }
 
     res.json({ message: "Reaction updated" });
   } catch (err) {
