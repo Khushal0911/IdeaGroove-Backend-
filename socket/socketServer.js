@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { encryptMessage, decryptMessage } from "../utils/chatEncryption.js";
 import { corsOrigin } from "../config/runtime.js";
+import { getRoomSendPermission } from "../utils/chatPermissions.js";
 
 const getActiveMembership = async (db, roomId, studentId) => {
   const [rows] = await db.query(
@@ -174,14 +175,10 @@ export const initSocket = (httpServer) => {
       try {
         const { default: db } = await import("../config/database.js");
 
-        const [membership] = await db.query(
-          `SELECT Member_ID FROM chat_room_members_tbl
-           WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
-          [roomId, studentId],
-        );
-        if (membership.length === 0) {
+        const permission = await getRoomSendPermission(db, roomId, studentId);
+        if (!permission.allowed) {
           socket.emit("error", {
-            message: "You are not a member of this room",
+            message: permission.message,
           });
           return;
         }
@@ -362,12 +359,13 @@ export const initSocket = (httpServer) => {
         try {
           const { default: db } = await import("../config/database.js");
 
-          const [membership] = await db.query(
-            `SELECT Member_ID FROM chat_room_members_tbl
-           WHERE Room_ID = ? AND Student_ID = ? AND Is_Active = 1`,
-            [roomId, studentId],
-          );
-          if (membership.length === 0) return;
+          const permission = await getRoomSendPermission(db, roomId, studentId);
+          if (!permission.allowed) {
+            socket.emit("error", {
+              message: permission.message,
+            });
+            return;
+          }
 
           const { encryptedData, iv } = encryptMessage(fileUrl);
 
