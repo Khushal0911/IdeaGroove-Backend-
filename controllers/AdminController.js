@@ -1344,16 +1344,32 @@ export const unblockStudent = async (req, res) => {
 //   }
 // };
 
-const getMonthlyTrend = async (tableName, dateColumn) => {
-  const [rows] = await db.query(`
+const getMonthlyTrend = async (tableName, dateColumn, filters = {}) => {
+  const where = [`${dateColumn} >= DATE_SUB(NOW(), INTERVAL 6 MONTH)`];
+  const params = [];
+
+  if (filters.dateFrom) {
+    where.push(`DATE(${dateColumn}) >= ?`);
+    params.push(filters.dateFrom);
+  }
+
+  if (filters.dateTo) {
+    where.push(`DATE(${dateColumn}) <= ?`);
+    params.push(filters.dateTo);
+  }
+
+  const [rows] = await db.query(
+    `
     SELECT
       DATE_FORMAT(${dateColumn}, '%b') AS label,
       COUNT(*)                          AS value
     FROM ${tableName}
-    WHERE ${dateColumn} >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+    WHERE ${where.join(" AND ")}
     GROUP BY DATE_FORMAT(${dateColumn}, '%Y-%m'), DATE_FORMAT(${dateColumn}, '%b')
     ORDER BY DATE_FORMAT(${dateColumn}, '%Y-%m') ASC
-  `);
+  `,
+    params,
+  );
   return rows;
 };
 
@@ -1396,6 +1412,21 @@ const addWhereInClause = (
   where.push(`${column} IN (${values.map(() => "?").join(",")})`);
   params.push(...values);
   return values;
+};
+
+const addDateRangeClause = (where, params, column, filters = {}) => {
+  const dateFrom = String(filters.dateFrom || "").trim();
+  const dateTo = String(filters.dateTo || "").trim();
+
+  if (dateFrom) {
+    where.push(`DATE(${column}) >= ?`);
+    params.push(dateFrom);
+  }
+
+  if (dateTo) {
+    where.push(`DATE(${column}) <= ?`);
+    params.push(dateTo);
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1482,6 +1513,7 @@ export const getEventsReport = async (req, res) => {
   try {
     const filters = req.body || {};
     const where = [];
+    const params = [];
     const requestedStatuses = normalizeFilterValues(filters.event_status).map(
       (status) => status.toLowerCase(),
     );
@@ -1493,6 +1525,7 @@ export const getEventsReport = async (req, res) => {
     } else if (wantsPast && !wantsUpcoming) {
       where.push("e.Event_Date < CURDATE()");
     }
+    addDateRangeClause(where, params, "e.Event_Date", filters);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1509,7 +1542,7 @@ export const getEventsReport = async (req, res) => {
       LEFT JOIN student_tbl s ON s.S_ID = e.Added_By
       ${whereClause}
       ORDER BY e.Event_Date DESC`,
-      // no params — no placeholders used here
+      params,
     );
 
     const total = rows.length;
@@ -1531,7 +1564,7 @@ export const getEventsReport = async (req, res) => {
       { label: "Blocked", value: inactive, color: "#ef4444" },
     ].filter((s) => s.value > 0);
 
-    const bars = await getMonthlyTrend("event_tbl", "Event_Date");
+    const bars = await getMonthlyTrend("event_tbl", "Event_Date", filters);
 
     res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
@@ -1552,8 +1585,6 @@ export const getGroupsReport = async (req, res) => {
     addWhereInClause(where, params, "h.Hobby_Name", filters.hobby);
     addWhereInClause(where, params, "cr.Room_Name", filters.groups);
 
-    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
-
     // Discover date column name dynamically
     const [[colInfo]] = await db.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -1565,6 +1596,10 @@ export const getGroupsReport = async (req, res) => {
     const dateExpr = dateCol
       ? `DATE_FORMAT(cr.${dateCol}, '%Y-%m-%d')`
       : `NULL`;
+    if (dateCol) {
+      addDateRangeClause(where, params, `cr.${dateCol}`, filters);
+    }
+    const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
     const [rows] = await db.query(
       `SELECT
@@ -1619,7 +1654,7 @@ export const getGroupsReport = async (req, res) => {
     let bars = [];
     if (dateCol) {
       try {
-        bars = await getMonthlyTrend("chat_rooms_tbl", dateCol);
+        bars = await getMonthlyTrend("chat_rooms_tbl", dateCol, filters);
       } catch {}
     }
 
@@ -1641,6 +1676,7 @@ export const getNotesReport = async (req, res) => {
 
     addWhereInClause(where, params, "d.Degree_Name", filters.degree);
     addWhereInClause(where, params, "sub.Subject_Name", filters.subject);
+    addDateRangeClause(where, params, "n.Added_On", filters);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1682,7 +1718,7 @@ export const getNotesReport = async (req, res) => {
       { label: "Blocked", value: inactive, color: "#ef4444" },
     ].filter((s) => s.value > 0);
 
-    const bars = await getMonthlyTrend("notes_tbl", "Added_On");
+    const bars = await getMonthlyTrend("notes_tbl", "Added_On", filters);
 
     res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
@@ -1703,6 +1739,7 @@ export const getQnAReport = async (req, res) => {
     addWhereInClause(where, params, "d.Degree_Name", filters.degree);
     addWhereInClause(where, params, "sub.Subject_Name", filters.subject);
     addWhereInClause(where, params, "q.Question", filters.questions);
+    addDateRangeClause(where, params, "q.Added_On", filters);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1762,7 +1799,7 @@ export const getQnAReport = async (req, res) => {
       { label: "Unanswered", value: unanswered, color: "#f59e0b" },
     ].filter((s) => s.value > 0);
 
-    const bars = await getMonthlyTrend("question_tbl", "Added_On");
+    const bars = await getMonthlyTrend("question_tbl", "Added_On", filters);
 
     res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
@@ -1818,6 +1855,7 @@ export const getComplaintsReport = async (req, res) => {
     addWhereInClause(where, params, "LOWER(c.Type)", filters.type, (type) =>
       type.toLowerCase(),
     );
+    addDateRangeClause(where, params, "c.Date", filters);
 
     const whereClause = where.length ? "WHERE " + where.join(" AND ") : "";
 
@@ -1887,7 +1925,7 @@ export const getComplaintsReport = async (req, res) => {
       { label: "In-Progress", value: inProgress, color: "#3b82f6" },
     ].filter((s) => s.value > 0);
 
-    const bars = await getMonthlyTrend("complaint_tbl", "Date");
+    const bars = await getMonthlyTrend("complaint_tbl", "Date", filters);
 
     res.status(200).json({ summary, chartData: { donut, bars }, rows });
   } catch (err) {
