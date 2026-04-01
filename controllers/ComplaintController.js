@@ -42,6 +42,69 @@ const buildComplaintContentExpressions = () => {
   return { titleExpression, ownerExpression, activityExpression };
 };
 
+const complaintContextSelect = `
+  CASE
+    WHEN LOWER(c.Type) = 'question' THEN q.Q_ID
+    WHEN LOWER(c.Type) = 'answer' THEN aq.Q_ID
+    ELSE NULL
+  END AS Question_ID,
+  CASE
+    WHEN LOWER(c.Type) = 'question' THEN q.Question
+    WHEN LOWER(c.Type) = 'answer' THEN aq.Question
+    ELSE NULL
+  END AS Question_Text,
+  CASE
+    WHEN LOWER(c.Type) = 'notes' THEN COALESCE(n.File_Name, n.Note_File)
+    ELSE NULL
+  END AS Note_File_Name,
+  CASE
+    WHEN LOWER(c.Type) = 'notes' THEN n.Note_File
+    ELSE NULL
+  END AS Note_File_URL,
+  CASE
+    WHEN LOWER(c.Type) = 'notes' THEN n.Description
+    ELSE NULL
+  END AS Note_Description,
+  CASE
+    WHEN LOWER(c.Type) = 'notes' THEN nsub.Subject_Name
+    ELSE NULL
+  END AS Note_Subject_Name,
+  CASE
+    WHEN LOWER(c.Type) = 'event' THEN e.Event_Date
+    ELSE NULL
+  END AS Event_Date,
+  CASE
+    WHEN LOWER(c.Type) = 'event' THEN e.Poster_File
+    ELSE NULL
+  END AS Event_Poster_URL,
+  CASE
+    WHEN LOWER(c.Type) = 'groups' THEN cr.Description
+    ELSE NULL
+  END AS Group_Description,
+  CASE
+    WHEN LOWER(c.Type) = 'groups' THEN gh.Hobby_Name
+    ELSE NULL
+  END AS Group_Based_On,
+  CASE
+    WHEN LOWER(c.Type) = 'user' THEN s_reported.S_ID
+    ELSE NULL
+  END AS Reported_User_ID,
+  CASE
+    WHEN LOWER(c.Type) = 'user' THEN s_reported.Name
+    ELSE NULL
+  END AS Reported_User_Name,
+  CASE
+    WHEN LOWER(c.Type) = 'user' THEN s_reported.Username
+    ELSE NULL
+  END AS Reported_User_Username
+`;
+
+const complaintContextJoins = `
+  LEFT JOIN question_tbl aq ON c.Type = 'answer' AND a.Q_ID = aq.Q_ID
+  LEFT JOIN subject_tbl nsub ON c.Type = 'notes' AND n.Subject_ID = nsub.Subject_ID
+  LEFT JOIN hobbies_tbl gh ON c.Type = 'groups' AND cr.Based_On = gh.Hobby_ID
+`;
+
 export const getAllComplaints = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -114,7 +177,8 @@ export const getAllComplaints = async (req, res) => {
         s.S_ID AS Student_ID,
         ${titleExpression} AS Content_Title,
         ${ownerExpression} AS Content_Owner_Name,
-        ${activityExpression} AS Reported_Activity
+        ${activityExpression} AS Reported_Activity,
+        ${complaintContextSelect}
       FROM complaint_tbl c
       LEFT JOIN student_tbl s ON c.${complaintStudentFk} = s.S_ID
       LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
@@ -128,6 +192,7 @@ export const getAllComplaints = async (req, res) => {
       LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
       LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
       LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
+      ${complaintContextJoins}
       WHERE ${whereClause}
       ORDER BY c.Date DESC
       LIMIT ? OFFSET ?
@@ -187,7 +252,8 @@ export const getUserComplaints = async (req, res) => {
         c.*,
         ${titleExpression} AS Content_Title,
         ${ownerExpression} AS Content_Owner_Name,
-        ${activityExpression} AS Reported_Activity
+        ${activityExpression} AS Reported_Activity,
+        ${complaintContextSelect}
       FROM complaint_tbl c
       LEFT JOIN question_tbl q ON c.Type = 'question' AND c.Content_ID = q.Q_ID
       LEFT JOIN student_tbl sq ON q.Added_By = sq.S_ID
@@ -200,6 +266,7 @@ export const getUserComplaints = async (req, res) => {
       LEFT JOIN event_tbl e ON c.Type = 'event' AND c.Content_ID = e.E_ID
       LEFT JOIN student_tbl se ON e.Added_By = se.S_ID
       LEFT JOIN student_tbl s_reported ON c.Type = 'user' AND c.Content_ID = s_reported.S_ID
+      ${complaintContextJoins}
       WHERE c.Student_ID = ? AND c.Is_Active = 1
       ORDER BY c.Date DESC
       LIMIT ? OFFSET ?
