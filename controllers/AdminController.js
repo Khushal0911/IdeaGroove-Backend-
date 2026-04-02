@@ -1775,7 +1775,7 @@ export const getQnAReport = async (req, res) => {
             SEPARATOR ' || '
           ) AS all_answers
         FROM answer_tbl a
-        LEFT JOIN student_tbl sa ON sa.S_ID = a.Added_By
+        LEFT JOIN student_tbl sa ON sa.S_ID = a.Answered_By
         GROUP BY a.Q_ID
       ) AS answer_data ON answer_data.Q_ID = q.Q_ID
       ${whereClause}
