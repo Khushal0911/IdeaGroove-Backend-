@@ -133,6 +133,409 @@ export const getAdminEvents = async (req, res) => {
   }
 };
 
+export const getAdminUsers = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        s.S_ID,
+        s.Username,
+        s.Name,
+        s.Roll_No,
+        s.Year,
+        s.Email,
+        s.Profile_Pic,
+        s.is_Active,
+        c.College_ID,
+        c.College_Name,
+        c.City,
+        c.State,
+        d.Degree_ID,
+        d.Degree_Name,
+        h.Hobby_ID,
+        h.Hobby_Name
+      FROM student_tbl s
+      LEFT JOIN college_tbl c
+        ON s.College_ID = c.College_ID
+      LEFT JOIN degree_tbl d
+        ON s.Degree_ID = d.Degree_ID
+      LEFT JOIN student_hobby_mapping_tbl shm
+        ON s.S_ID = shm.Student_ID
+      LEFT JOIN hobbies_tbl h
+        ON shm.Hobby_ID = h.Hobby_ID
+      ORDER BY s.S_ID
+    `);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Users not found" });
+    }
+
+    const studentsMap = {};
+
+    rows.forEach((row) => {
+      if (!studentsMap[row.S_ID]) {
+        studentsMap[row.S_ID] = {
+          S_ID: row.S_ID,
+          Username: row.Username,
+          Name: row.Name,
+          Roll_No: row.Roll_No,
+          College_ID: row.College_ID,
+          Degree_ID: row.Degree_ID,
+          Year: row.Year,
+          Email: row.Email,
+          Profile_Pic: row.Profile_Pic,
+          is_Active: row.is_Active,
+          College: {
+            College_ID: row.College_ID,
+            College_Name: row.College_Name,
+            City: row.City,
+            State: row.State,
+          },
+          Degree: {
+            Degree_ID: row.Degree_ID,
+            Degree_Name: row.Degree_Name,
+          },
+          hobbies: [],
+        };
+      }
+
+      if (row.Hobby_ID) {
+        studentsMap[row.S_ID].hobbies.push({
+          Hobby_ID: row.Hobby_ID,
+          Hobby_Name: row.Hobby_Name,
+        });
+      }
+    });
+
+    return res.status(200).json(Object.values(studentsMap));
+  } catch (err) {
+    console.error("Fetch Admin Users Error:", err);
+    return res.status(500).json({ error: "Failed to fetch admin users" });
+  }
+};
+
+export const getAdminGroups = async (req, res) => {
+  try {
+    const [groups] = await db.query(`
+      SELECT
+        cr.Room_ID,
+        cr.Room_Name,
+        cr.Based_On,
+        h.Hobby_Name,
+        cr.Created_By AS Creator_ID,
+        s.Name AS Creator_Name,
+        DATE_FORMAT(cr.Created_On, '%Y-%m-%d') AS Created_On,
+        cr.Description,
+        cr.Is_Active,
+        COALESCE(member_data.Member_Count, 0) AS Member_Count
+      FROM chat_rooms_tbl cr
+      LEFT JOIN hobbies_tbl h
+        ON h.Hobby_ID = cr.Based_On
+      LEFT JOIN student_tbl s
+        ON s.S_ID = cr.Created_By
+      LEFT JOIN (
+        SELECT
+          Room_ID,
+          COUNT(*) AS Member_Count
+        FROM chat_room_members_tbl
+        WHERE Is_Active = 1
+        GROUP BY Room_ID
+      ) AS member_data
+        ON member_data.Room_ID = cr.Room_ID
+      ORDER BY cr.Room_ID DESC
+    `);
+
+    return res.status(200).json({
+      data: groups,
+      pagination: {
+        total: groups.length,
+      },
+    });
+  } catch (err) {
+    console.error("Fetch Admin Groups Error:", err);
+    return res.status(500).json({ error: "Failed to fetch admin groups" });
+  }
+};
+
+export const getAdminQna = async (req, res) => {
+  try {
+    const [questions] = await db.query(`
+      SELECT
+        q.Q_ID,
+        q.Question,
+        q.Added_On,
+        q.Added_By AS Author_Id,
+        q.Is_Active,
+        s.Name AS Question_Author,
+        d.Degree_Name,
+        sub.Subject_Name
+      FROM question_tbl q
+      LEFT JOIN student_tbl s
+        ON s.S_ID = q.Added_By
+      LEFT JOIN degree_tbl d
+        ON d.Degree_ID = s.Degree_ID
+      LEFT JOIN subject_tbl sub
+        ON sub.Subject_ID = q.Subject_ID
+      ORDER BY q.Added_On DESC, q.Q_ID DESC
+    `);
+
+    const [answers] = await db.query(`
+      SELECT
+        a.A_ID,
+        a.Q_ID,
+        a.Answer,
+        a.Answered_On,
+        a.Answered_By AS Answer_Author_Id,
+        a.Is_Active,
+        s.Name AS Answer_Author
+      FROM answer_tbl a
+      LEFT JOIN student_tbl s
+        ON s.S_ID = a.Answered_By
+      ORDER BY a.Answered_On ASC, a.A_ID ASC
+    `);
+
+    const answersByQuestionId = answers.reduce((acc, answer) => {
+      if (!acc[answer.Q_ID]) {
+        acc[answer.Q_ID] = [];
+      }
+
+      acc[answer.Q_ID].push(answer);
+      return acc;
+    }, {});
+
+    const formattedQuestions = questions.map((question) => {
+      const questionAnswers = answersByQuestionId[question.Q_ID] || [];
+
+      return {
+        ...question,
+        Total_Answers: questionAnswers.length,
+        Answers: questionAnswers,
+      };
+    });
+
+    return res.status(200).json({
+      total: formattedQuestions.length,
+      QnA: formattedQuestions,
+    });
+  } catch (err) {
+    console.error("Fetch Admin QnA Error:", err);
+    return res.status(500).json({ error: "Failed to fetch admin qna" });
+  }
+};
+
+export const getAdminStudentProfile = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT
+        s.S_ID,
+        s.Name,
+        s.Username,
+        s.Profile_Pic,
+        s.Roll_No,
+        s.Email,
+        s.Year,
+        s.is_Active,
+        s.College_ID,
+        c.College_Name,
+        s.Degree_ID,
+        d.Degree_Name,
+        h.Hobby_ID,
+        h.Hobby_Name,
+        (SELECT COUNT(*)
+         FROM notes_tbl n
+         WHERE n.Added_By = s.S_ID AND n.Is_Active = 1) AS notes_count,
+        (SELECT COUNT(*)
+         FROM question_tbl q
+         WHERE q.Added_By = s.S_ID AND q.Is_Active = 1) AS questions_count,
+        (SELECT COUNT(*)
+         FROM event_tbl e
+         WHERE e.Added_By = s.S_ID AND e.Is_Active = 1) AS events_count,
+        (SELECT COUNT(*)
+         FROM complaint_tbl comp
+         WHERE comp.Student_ID = s.S_ID AND comp.Is_Active = 1) AS complaints_count,
+        (SELECT COUNT(*)
+         FROM chat_room_members_tbl crm
+         WHERE crm.Student_ID = s.S_ID AND crm.Is_Active = 1) AS groups_count
+      FROM student_tbl s
+      LEFT JOIN college_tbl c
+        ON s.College_ID = c.College_ID
+      LEFT JOIN degree_tbl d
+        ON s.Degree_ID = d.Degree_ID
+      LEFT JOIN student_hobby_mapping_tbl shm
+        ON s.S_ID = shm.Student_ID
+      LEFT JOIN hobbies_tbl h
+        ON shm.Hobby_ID = h.Hobby_ID
+      WHERE s.S_ID = ?
+      `,
+      [id],
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const profile = {
+      ...rows[0],
+      hobbies: [],
+    };
+
+    rows.forEach((row) => {
+      if (row.Hobby_ID) {
+        profile.hobbies.push({
+          Hobby_ID: row.Hobby_ID,
+          Hobby_Name: row.Hobby_Name,
+        });
+      }
+    });
+
+    return res.status(200).json(profile);
+  } catch (err) {
+    console.error("Fetch Admin Student Profile Error:", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+};
+
+export const getAdminStudentActivities = async (req, res) => {
+  const { id } = req.params;
+  const { type } = req.query;
+
+  try {
+    let query = "";
+    const params = [id];
+
+    switch (type) {
+      case "Notes":
+        query = `
+          SELECT
+            n.N_ID AS id,
+            n.File_Name AS title,
+            n.Added_On AS date,
+            d.Degree_Name AS course,
+            s.Subject_Name AS type
+          FROM notes_tbl n
+          LEFT JOIN student_tbl st ON st.S_ID = n.Added_By
+          LEFT JOIN degree_tbl d ON d.Degree_ID = st.Degree_ID
+          LEFT JOIN subject_tbl s ON s.Subject_ID = n.Subject_ID
+          WHERE n.Added_By = ?
+            AND n.Is_Active = 1
+          ORDER BY n.Added_On DESC
+        `;
+        break;
+
+      case "QnA":
+        query = `
+          SELECT
+            q.Q_ID AS id,
+            q.Question AS title,
+            q.Added_On AS date,
+            d.Degree_Name AS course,
+            s.Subject_Name AS type,
+            (
+              SELECT COALESCE(
+                JSON_ARRAYAGG(
+                  JSON_OBJECT(
+                    'id', a.A_ID,
+                    'answer', a.Answer,
+                    'answeredBy', ans.Name,
+                    'answeredByUsername', ans.Username,
+                    'answeredOn', a.Answered_On
+                  )
+                ),
+                JSON_ARRAY()
+              )
+              FROM answer_tbl a
+              LEFT JOIN student_tbl ans ON ans.S_ID = a.Answered_By
+              WHERE a.Q_ID = q.Q_ID
+                AND a.Is_Active = 1
+            ) AS answers
+          FROM question_tbl q
+          LEFT JOIN student_tbl st ON st.S_ID = q.Added_By
+          LEFT JOIN degree_tbl d ON d.Degree_ID = st.Degree_ID
+          LEFT JOIN subject_tbl s ON s.Subject_ID = q.Subject_ID
+          WHERE q.Added_By = ?
+            AND q.Is_Active = 1
+          ORDER BY q.Added_On DESC
+        `;
+        break;
+
+      case "Events":
+        query = `
+          SELECT
+            E_ID AS id,
+            Description AS title,
+            Added_On AS date,
+            Event_Date AS eventDate,
+            NULL AS course,
+            NULL AS type
+          FROM event_tbl
+          WHERE Added_By = ?
+            AND Is_Active = 1
+          ORDER BY Added_On DESC
+        `;
+        break;
+
+      case "Complaints":
+        query = `
+          SELECT
+            Complaint_ID AS id,
+            Complaint_Text AS title,
+            Date AS date,
+            NULL AS course,
+            Type AS type
+          FROM complaint_tbl
+          WHERE Student_ID = ?
+            AND Is_Active = 1
+          ORDER BY Date DESC
+        `;
+        break;
+
+      case "Groups":
+        query = `
+          SELECT
+            crm.Member_ID AS id,
+            cr.Room_ID AS roomId,
+            cr.Room_Name AS title,
+            crm.Joined_On AS date,
+            h.Hobby_Name AS type,
+            crm.Role AS course,
+            cr.Description AS description,
+            (
+              SELECT COUNT(*)
+              FROM chat_room_members_tbl crm2
+              WHERE crm2.Room_ID = cr.Room_ID
+                AND crm2.Is_Active = 1
+            ) AS memberCount
+          FROM chat_room_members_tbl crm
+          LEFT JOIN chat_rooms_tbl cr ON cr.Room_ID = crm.Room_ID
+          LEFT JOIN hobbies_tbl h ON h.Hobby_ID = cr.Based_On
+          WHERE crm.Student_ID = ?
+            AND crm.Is_Active = 1
+          ORDER BY crm.Joined_On DESC
+        `;
+        break;
+
+      default:
+        return res.status(400).json({ error: "Invalid type" });
+    }
+
+    const [rows] = await db.query(query, params);
+    const formattedRows = rows.map((row) => ({
+      ...row,
+      answers:
+        typeof row.answers === "string"
+          ? JSON.parse(row.answers)
+          : row.answers || [],
+    }));
+
+    return res.status(200).json(formattedRows);
+  } catch (err) {
+    console.error("Fetch Admin Student Activities Error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
 // export const updateComplaintStatus = async (req, res) => {
 //   const { id, status } = req.body;
 

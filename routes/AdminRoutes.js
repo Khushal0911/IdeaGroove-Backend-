@@ -1,6 +1,11 @@
 import express from "express";
 import {
   getAdminEvents,
+  getAdminGroups,
+  getAdminQna,
+  getAdminStudentActivities,
+  getAdminStudentProfile,
+  getAdminUsers,
   adminLogin,
   adminLogout,
   blockContent,
@@ -25,6 +30,11 @@ adminRouter.post("/login", adminLogin);
 adminRouter.post("/logout", adminLogout);
 adminRouter.get("/dashboard-stats", getDashboardStats);
 adminRouter.get("/events", getAdminEvents);
+adminRouter.get("/users", getAdminUsers);
+adminRouter.get("/groups", getAdminGroups);
+adminRouter.get("/qna", getAdminQna);
+adminRouter.get("/students/:id/profile", getAdminStudentProfile);
+adminRouter.get("/students/:id/activities", getAdminStudentActivities);
 adminRouter.get("/top-contributor", getTopContributor);
 adminRouter.get("/recent-activity", getRecentActivity);
 adminRouter.get("/notes", getNotes);
